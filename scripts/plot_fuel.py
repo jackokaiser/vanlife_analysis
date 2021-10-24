@@ -2,6 +2,8 @@ import argparse
 import os
 from typing import Optional
 import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 
 from vanlife_analysis.utils import load_fuel_records
 
@@ -49,6 +51,29 @@ def compute_personal_co2(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
     return personal_co2
 
 
+def draw_driven_km(ax: Axes, driven_km_df: pd.DataFrame) -> None:
+    def line_format(label):
+        """
+        Convert time label to the format of pandas line plot
+        """
+        month = label.month_name()[:3]
+        if month == 'Jan':
+            month += f'\n{label.year}'
+        return month
+
+    bars = driven_km_df.plot(ax=ax, ylabel='km', kind='bar')
+    ax.set_xticklabels(map(line_format, driven_km_df.index))
+    for p in ax.patches:
+        ax.annotate(f'{int(p.get_height())} km', (p.get_x() * 1.005, p.get_height() * 1.005))
+
+
+def get_driven_km(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFrame:
+    driven_km_df = fuel_records_df[['date']].copy()
+    driven_km_df['driven'] = fuel_records_df['mileage'].diff()
+    driven_km_df = driven_km_df.groupby(pd.Grouper(key='date', freq=freq)).sum()
+    return driven_km_df
+
+
 def plot_fuel(path_to_fuel: str, save_dir: Optional[str]) -> None:
     fuel_records_df = load_fuel_records(path_to_fuel)
     personal_co2 = compute_personal_co2(fuel_records_df)
@@ -56,13 +81,20 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str]) -> None:
     begin_date = fuel_records_df.iloc[0]['date']
     end_date = fuel_records_df.iloc[-1]['date']
     n_days = (end_date - begin_date).days
-
     print(f'kg of CO2 emitted for {n_days} days (from {begin_date.date()} to {end_date.date()})')
     print(personal_co2)
     print(f'total: {personal_co2["co2"].sum()} kg of CO2 equivalent')
 
+    driven_km_df = get_driven_km(fuel_records_df)
+    fig, ax = plt.subplots(1, 1)
+    draw_driven_km(ax, driven_km_df)
+
     if save_dir is not None:
         os.makedirs(save_dir, exist_ok=True)
+        fig.savefig(os.path.join(save_dir, 'driven_km.png'), bbox_inches='tight')
+    else:
+        plt.show()
+    plt.close(fig)
 
 
 def parse_args() -> argparse.Namespace:
