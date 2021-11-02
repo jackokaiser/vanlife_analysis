@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
+import seaborn as sns
 
 from vanlife_analysis.utils import load_fuel_records
 
@@ -56,10 +57,11 @@ def compute_personal_co2(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
 def annotate_rectangles(ax: Axes) -> None:
     for rectangle in ax.patches:
         height = rectangle.get_height()
-        if not np.isclose(height, 0):
+        too_few_kms = 50
+        if not np.isclose(height, 0, atol=too_few_kms):
             x = rectangle.get_x() + rectangle.get_width() / 2.0
-            y = rectangle.get_y() + height / 2.0
-            ax.annotate(f'{int(height)} km', (x, y), ha='center')
+            y = rectangle.get_y() + height - too_few_kms
+            ax.annotate(f'{int(height)} km', (x, y), ha='center', va='top')
 
 
 def draw_driven_km(ax: Axes, driven_km_df: pd.DataFrame) -> None:
@@ -86,6 +88,9 @@ def get_driven_km(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFram
 
 
 def plot_fuel(path_to_fuel: str, save_dir: Optional[str]) -> None:
+    # Apply the default theme
+    sns.set_theme()
+
     fuel_records_df = load_fuel_records(path_to_fuel)
     personal_co2 = compute_personal_co2(fuel_records_df)
 
