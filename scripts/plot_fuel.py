@@ -70,16 +70,24 @@ def annotate_kms(ax: Axes, xx: np.ndarray, yy: np.ndarray) -> None:
         ax.annotate(f'{int(height)} km', (x, height), ha='center', va='bottom')
 
 
-def annotate_volumes(ax: Axes, xx: np.ndarray, bar_heights: np.ndarray, bar_values: np.ndarray) -> None:
+def fuel_unit(fuel: str) -> str:
+    if fuel == 'E10':
+        return 'L'
+    else:
+        return 'kg'
+
+
+def annotate_volumes(ax: Axes, xx: np.ndarray, bar_heights: np.ndarray,
+                     bar_values: np.ndarray, fuels: np.ndarray) -> None:
     assert bar_heights.shape == bar_values.shape
     assert len(xx) == len(bar_heights) == len(bar_values)
 
     too_little_volume = 5
     for x, heights, values in zip(xx, bar_heights, bar_values):
         y = 0
-        for height, value in zip(heights, values):
+        for fuel, height, value in zip(fuels, heights, values):
             if not np.isclose(value, 0, atol=too_little_volume):
-                ax.annotate(f'{int(value)}', (x, y), ha='center', va='bottom')
+                ax.annotate(f'{int(value)} {fuel_unit(fuel)}', (x, y), ha='center', va='bottom')
             y += height
 
 
@@ -106,7 +114,8 @@ def draw_driven_km(ax: Axes, driven_freq_df: pd.DataFrame) -> None:
     ax.set_xticklabels([line_format(index) for index in driven_freq_df.index])
 
     annotate_kms(ax, ax.get_xticks(), driven_kms)
-    annotate_volumes(ax, ax.get_xticks(), renormalized_driven_volume_df.values, driven_volume_df.values)
+    annotate_volumes(ax, ax.get_xticks(), renormalized_driven_volume_df.values,
+                     driven_volume_df.values, driven_volume_df.columns.categories.values)
 
 
 def get_driven_freq(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFrame:
