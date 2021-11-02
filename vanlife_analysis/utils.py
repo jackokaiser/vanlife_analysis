@@ -23,6 +23,6 @@ def load_fuel_records(csv_path: str) -> pd.DataFrame:
     all_csv = parse_fuel_manager(csv_path)
     fuel_records_df = all_csv['records info (Vanderfool)']
     fuel_records_df.columns = fuel_records_df.columns.str.strip()
-    fuel_records_df['type'] = fuel_records_df['type'].str.strip()
+    fuel_records_df['type'] = fuel_records_df['type'].str.strip().astype('category')
     fuel_records_df['date'] = pd.to_datetime(fuel_records_df['date'], format='%Y%m%d')
     return fuel_records_df

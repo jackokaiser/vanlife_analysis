@@ -2,8 +2,10 @@ import argparse
 import os
 from typing import Optional
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
+from matplotlib.patches import Rectangle
 
 from vanlife_analysis.utils import load_fuel_records
 
@@ -51,27 +53,36 @@ def compute_personal_co2(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
     return personal_co2
 
 
+def annotate_rectangles(ax: Axes) -> None:
+    for rectangle in ax.patches:
+        height = rectangle.get_height()
+        if not np.isclose(height, 0):
+            x = rectangle.get_x() + rectangle.get_width() / 2.0
+            y = rectangle.get_y() + height / 2.0
+            ax.annotate(f'{int(height)} km', (x, y), ha='center')
+
+
 def draw_driven_km(ax: Axes, driven_km_df: pd.DataFrame) -> None:
-    def line_format(label):
+    def line_format(date):
         """
         Convert time label to the format of pandas line plot
         """
-        month = label.month_name()[:3]
+        month = date.month_name()[:3]
         if month == 'Jan':
-            month += f'\n{label.year}'
+            month += f'\n{date.year}'
         return month
 
-    bars = driven_km_df.plot(ax=ax, ylabel='km', kind='bar')
+    bars = driven_km_df.plot(ax=ax, ylabel='km', kind='bar', stacked=True)
     ax.set_xticklabels(map(line_format, driven_km_df.index))
-    for p in ax.patches:
-        ax.annotate(f'{int(p.get_height())} km', (p.get_x() * 1.005, p.get_height() * 1.005))
+    annotate_rectangles(ax)
 
 
 def get_driven_km(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFrame:
     driven_km_df = fuel_records_df[['date']].copy()
     driven_km_df['driven'] = fuel_records_df['mileage'].diff()
-    driven_km_df = driven_km_df.groupby(pd.Grouper(key='date', freq=freq)).sum()
-    return driven_km_df
+    driven_km_df['type'] = fuel_records_df['type']
+    driven_km_df = driven_km_df.groupby([pd.Grouper(key='date', freq=freq), 'type']).sum()
+    return driven_km_df.unstack()
 
 
 def plot_fuel(path_to_fuel: str, save_dir: Optional[str]) -> None:
