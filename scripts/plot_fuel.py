@@ -64,7 +64,26 @@ def annotate_rectangles(ax: Axes) -> None:
             ax.annotate(f'{int(height)} km', (x, y), ha='center', va='top')
 
 
-def draw_driven_km(ax: Axes, driven_km_df: pd.DataFrame) -> None:
+def annotate_kms(ax: Axes, xx: np.ndarray, yy: np.ndarray) -> None:
+    assert len(xx) == len(yy)
+    for x, height in zip(xx, yy):
+        ax.annotate(f'{int(height)} km', (x, height), ha='center', va='bottom')
+
+
+def annotate_volumes(ax: Axes, xx: np.ndarray, bar_heights: np.ndarray, bar_values: np.ndarray) -> None:
+    assert bar_heights.shape == bar_values.shape
+    assert len(xx) == len(bar_heights) == len(bar_values)
+
+    too_little_volume = 5
+    for x, heights, values in zip(xx, bar_heights, bar_values):
+        y = 0
+        for height, value in zip(heights, values):
+            if not np.isclose(value, 0, atol=too_little_volume):
+                ax.annotate(f'{int(value)}', (x, y), ha='center', va='bottom')
+            y += height
+
+
+def draw_driven_km(ax: Axes, driven_freq_df: pd.DataFrame) -> None:
     def line_format(date):
         """
         Convert time label to the format of pandas line plot
@@ -74,18 +93,29 @@ def draw_driven_km(ax: Axes, driven_km_df: pd.DataFrame) -> None:
             month += f'\n{date.year}'
         return month
 
-    bars = driven_km_df.plot(ax=ax, ylabel='km', kind='bar', stacked=True)
-    ax.set_xticklabels([line_format(index) for index in driven_km_df.index])
-    ax.legend(labels=[col[1] for col in driven_km_df.columns])
-    annotate_rectangles(ax)
+    driven_kms = driven_freq_df['driven'].sum(axis=1).values
+    driven_volume_df = driven_freq_df['volume']
+    driven_volumes = driven_volume_df.sum(axis=1).values
+    scaling_factors = driven_kms / driven_volumes
+
+    renormalized_driven_volume_df = driven_volume_df.copy()
+    for col in driven_volume_df.columns:
+        renormalized_driven_volume_df[col] *= scaling_factors
+
+    renormalized_driven_volume_df.plot(ax=ax, kind='bar', ylabel='km', stacked=True)
+    ax.set_xticklabels([line_format(index) for index in driven_freq_df.index])
+
+    annotate_kms(ax, ax.get_xticks(), driven_kms)
+    annotate_volumes(ax, ax.get_xticks(), renormalized_driven_volume_df.values, driven_volume_df.values)
 
 
-def get_driven_km(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFrame:
-    driven_km_df = fuel_records_df[['date']].copy()
-    driven_km_df['driven'] = fuel_records_df['mileage'].diff()
-    driven_km_df['type'] = fuel_records_df['type']
-    driven_km_df = driven_km_df.groupby([pd.Grouper(key='date', freq=freq), 'type']).sum()
-    return driven_km_df.unstack()
+def get_driven_freq(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFrame:
+    driven_freq_df = fuel_records_df[['date']].copy()
+    driven_freq_df['driven'] = fuel_records_df['mileage'].diff()
+    driven_freq_df['type'] = fuel_records_df['type']
+    driven_freq_df['volume'] = fuel_records_df['volume']
+    driven_freq_df = driven_freq_df.groupby([pd.Grouper(key='date', freq=freq), 'type']).sum()
+    return driven_freq_df.unstack()
 
 
 def plot_fuel(path_to_fuel: str, save_dir: Optional[str]) -> None:
@@ -102,10 +132,10 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str]) -> None:
     print(personal_co2)
     print(f'total: {personal_co2["co2"].sum()} kg of CO2 equivalent')
 
-    driven_km_df = get_driven_km(fuel_records_df)
+    driven_freq_df = get_driven_freq(fuel_records_df)
     fig_height = 10
     fig, ax = plt.subplots(1, 1, figsize=(fig_height * 1.619, fig_height))
-    draw_driven_km(ax, driven_km_df)
+    draw_driven_km(ax, driven_freq_df)
 
     if save_dir is not None:
         os.makedirs(save_dir, exist_ok=True)
