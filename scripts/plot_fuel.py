@@ -103,7 +103,8 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str]) -> None:
     print(f'total: {personal_co2["co2"].sum()} kg of CO2 equivalent')
 
     driven_km_df = get_driven_km(fuel_records_df)
-    fig, ax = plt.subplots(1, 1)
+    fig_height = 10
+    fig, ax = plt.subplots(1, 1, figsize=(fig_height * 1.619, fig_height))
     draw_driven_km(ax, driven_km_df)
 
     if save_dir is not None:
