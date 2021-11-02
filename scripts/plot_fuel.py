@@ -75,7 +75,8 @@ def draw_driven_km(ax: Axes, driven_km_df: pd.DataFrame) -> None:
         return month
 
     bars = driven_km_df.plot(ax=ax, ylabel='km', kind='bar', stacked=True)
-    ax.set_xticklabels(map(line_format, driven_km_df.index))
+    ax.set_xticklabels([line_format(index) for index in driven_km_df.index])
+    ax.legend(labels=[col[1] for col in driven_km_df.columns])
     annotate_rectangles(ax)
 
 
