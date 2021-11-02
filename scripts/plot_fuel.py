@@ -86,9 +86,10 @@ def annotate_volumes(ax: Axes, xx: np.ndarray, bar_heights: np.ndarray,
     for x, heights, values in zip(xx, bar_heights, bar_values):
         y = 0
         for fuel, height, value in zip(fuels, heights, values):
+            y += height / 2
             if not np.isclose(value, 0, atol=too_little_volume):
-                ax.annotate(f'{int(value)} {fuel_unit(fuel)}', (x, y), ha='center', va='bottom')
-            y += height
+                ax.annotate(f'{int(value)} {fuel_unit(fuel)}', (x, y), ha='center', va='center')
+            y += height / 2
 
 
 def draw_driven_km(ax: Axes, driven_freq_df: pd.DataFrame) -> None:
