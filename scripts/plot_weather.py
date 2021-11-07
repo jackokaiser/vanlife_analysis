@@ -21,7 +21,7 @@ def get_end_time(csv_path: str):
     return pd.to_datetime(end_sec, unit='s')
 
 
-def average(df: pd.DataFrame, n_secs: int = 60) -> pd.DataFrame:
+def average(df: pd.DataFrame, n_secs: int) -> pd.DataFrame:
     freq = f'{n_secs}S'
     return df.groupby(pd.Grouper(key='time', freq=freq)).mean()
 
@@ -46,7 +46,7 @@ def plot_weather(weather_dir: str, save_dir: Optional[str]):
     sns.set_theme()
     df = uncompress_and_load(weather_dir, data_loader)
     df = df.dropna()
-    df = average(df)
+    df = average(df, n_secs=120)
 
     if save_dir is not None:
         os.makedirs(save_dir, exist_ok=True)
