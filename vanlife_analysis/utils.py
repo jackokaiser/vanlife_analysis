@@ -1,4 +1,22 @@
+from typing import Callable
+import tempfile
+import shutil
+import os
 import pandas as pd
+
+
+def uncompress_and_load(ann_dir_or_zip: str, data_loader: Callable) -> list:
+    if ann_dir_or_zip.endswith('.zip'):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # unzip annotations to temporary directory
+            shutil.unpack_archive(ann_dir_or_zip, tmp_dir, 'zip')
+            files = os.listdir(tmp_dir)
+            if len(files) == 1 and os.path.isdir(dir_path := os.path.join(tmp_dir, files[0])):
+                return data_loader(dir_path)
+            else:
+                return data_loader(tmp_dir)
+    else:
+        return data_loader(tmp_dir)
 
 
 def parse_fuel_manager(csv_path: str) -> dict:

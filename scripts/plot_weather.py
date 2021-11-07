@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter
 from scipy import stats
 
+from vanlife_analysis.utils import uncompress_and_load
+
 TIME_TO_SLEEP = 15
 
 
@@ -18,7 +20,7 @@ def get_end_time(csv_path: str):
     return pd.to_datetime(end_sec, unit='s')
 
 
-def load_data(weather_dir: str):
+def data_loader(weather_dir: str):
     filepaths = glob.glob(os.path.join(weather_dir, 'sync_*.csv'))
     dfs = []
     for csv_path in tqdm(filepaths, desc='Loading csv data'):
@@ -35,7 +37,7 @@ def load_data(weather_dir: str):
 
 
 def plot_weather(weather_dir: str, save_dir: Optional[str]):
-    df = load_data(weather_dir)
+    df = uncompress_and_load(weather_dir, data_loader)
 
     if save_dir is not None:
         os.makedirs(save_dir, exist_ok=True)
