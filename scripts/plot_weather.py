@@ -21,6 +21,11 @@ def get_end_time(csv_path: str):
     return pd.to_datetime(end_sec, unit='s')
 
 
+def average(df: pd.DataFrame, n_secs: int = 60) -> pd.DataFrame:
+    freq = f'{n_secs}S'
+    return df.groupby(pd.Grouper(key='time', freq=freq)).mean().reset_index()
+
+
 def data_loader(weather_dir: str):
     filepaths = glob.glob(os.path.join(weather_dir, 'sync_*.csv'))
     dfs = []
@@ -40,19 +45,11 @@ def data_loader(weather_dir: str):
 def plot_weather(weather_dir: str, save_dir: Optional[str]):
     sns.set_theme()
     df = uncompress_and_load(weather_dir, data_loader)
+    df = df.dropna()
+    df = average(df)
 
     if save_dir is not None:
         os.makedirs(save_dir, exist_ok=True)
-
-    measures = [
-        'co2', 'tvoc',
-        'hum_ext', 'hum_room', 'hum_wall', 'hum_ceiling',
-        'temp_ext', 'temp_room', 'temp_wall', 'temp_ceiling'
-    ]
-
-    # filter outliers and nans
-    df.dropna(inplace=True)
-    df = df[(np.abs(stats.zscore(df[measures])) < 3).all(axis=1)]
 
     start_date = df['time'].iloc[0].date()
     end_date = df['time'].iloc[-1].date()
