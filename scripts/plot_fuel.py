@@ -8,7 +8,7 @@ from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
 import seaborn as sns
 
-from vanlife_analysis.utils import load_fuel_records
+from vanlife_analysis.utils import load_fuel_records, get_figsize
 
 
 def compute_personal_co2(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
@@ -143,8 +143,7 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str]) -> None:
     print(f'total: {personal_co2["co2"].sum()} kg of CO2 equivalent')
 
     driven_freq_df = get_driven_freq(fuel_records_df)
-    fig_height = 10
-    fig, ax = plt.subplots(1, 1, figsize=(fig_height * 1.619, fig_height))
+    fig, ax = plt.subplots(1, 1, figsize=get_figsize())
     draw_driven_km(ax, driven_freq_df)
 
     if save_dir is not None:

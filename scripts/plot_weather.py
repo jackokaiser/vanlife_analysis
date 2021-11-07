@@ -8,8 +8,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter
 from scipy import stats
+import seaborn as sns
 
-from vanlife_analysis.utils import uncompress_and_load
+from vanlife_analysis.utils import uncompress_and_load, get_figsize
 
 TIME_TO_SLEEP = 15
 
@@ -37,6 +38,7 @@ def data_loader(weather_dir: str):
 
 
 def plot_weather(weather_dir: str, save_dir: Optional[str]):
+    sns.set_theme()
     df = uncompress_and_load(weather_dir, data_loader)
 
     if save_dir is not None:
@@ -62,7 +64,7 @@ def plot_weather(weather_dir: str, save_dir: Optional[str]):
             ii_date = start_date + one_day * delta_day
             progress_bar.set_description(f'Plotting {ii_date.date()}')
 
-            fig, axs = plt.subplots(3, 1, sharex=True)
+            fig, axs = plt.subplots(3, 1, sharex=True, figsize=get_figsize())
             fig.suptitle(f'Day {ii_date.date()}', fontsize=16)
             plot_df = df[((ii_date <= df['time']) & (df['time'] < ii_date + one_day))]
 

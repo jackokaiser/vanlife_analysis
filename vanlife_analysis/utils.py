@@ -3,6 +3,12 @@ import tempfile
 import shutil
 import os
 import pandas as pd
+import numpy as np
+
+
+def get_figsize(fig_height: float = 10.0) -> tuple([float, float]):
+    golden = (1 + np.sqrt(5)) / 2.0
+    return (fig_height * golden, fig_height)
 
 
 def uncompress_and_load(ann_dir_or_zip: str, data_loader: Callable) -> list:
