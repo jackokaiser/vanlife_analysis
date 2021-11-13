@@ -190,8 +190,6 @@ def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> list:
             # add up driven kms if we were not driving on GNC
             fuel_efficiency.driven += record.driven
             if record.volume > 0 and record.type == 'E10' and is_full_tank(record):
-                import ipdb
-                ipdb.set_trace()
                 fuel_efficiencies.append(fuel_efficiency)
                 fuel_efficiency = FuelEfficiency(0, record.volume, record.type)
 
