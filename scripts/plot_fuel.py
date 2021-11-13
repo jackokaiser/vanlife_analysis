@@ -191,9 +191,13 @@ def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> list:
         if not any(start_gnc < idx <= stop_gnc for start_gnc, stop_gnc in gnc_driving_intervals):
             # add up driven kms if we were not driving on GNC
             fuel_efficiency.driven += record.driven
-        if record.volume > 0 and record.type == 'E10' and is_full_tank(record):
-            fuel_efficiencies.append(fuel_efficiency)
-            fuel_efficiency = FuelEfficiency(0, record.volume, record.type)
+
+        if record.volume > 0 and record.type == 'E10':
+            if is_full_tank(record):
+                fuel_efficiencies.append(fuel_efficiency)
+                fuel_efficiency = FuelEfficiency(0, record.volume, record.type)
+            else:
+                fuel_efficiency.volume += record.volume
 
     return fuel_efficiencies
 
