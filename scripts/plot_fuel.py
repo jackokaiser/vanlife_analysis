@@ -3,6 +3,7 @@ import os
 from typing import Optional
 import pandas as pd
 import numpy as np
+from dataclasses import dataclass
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
@@ -11,7 +12,7 @@ import seaborn as sns
 from vanlife_analysis.utils import load_fuel_records, get_figsize
 
 
-def compute_personal_co2(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
+def compute_personal_co2(fuel_records_df: pd.DataFrame, n_days: int) -> pd.DataFrame:
     # fuel
     # source:
     # - https://www.rncan.gc.ca/sites/www.nrcan.gc.ca/files/oee/pdf/transportation/fuel-efficient-technologies/autosmart_factsheet_6_f.pdf
@@ -45,8 +46,6 @@ def compute_personal_co2(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
     france_co2_for_food = 163 * 10**9
     n_french = 67.06 * 10**6
 
-    n_days = (fuel_records_df.iloc[-1]['date'] - fuel_records_df.iloc[0]['date']).days
-
     personal_co2 = personal_co2.append({
         'name': 'food',
         'co2': int(france_co2_for_food / n_french) / 365 * n_days
@@ -71,10 +70,7 @@ def annotate_kms(ax: Axes, xx: np.ndarray, yy: np.ndarray) -> None:
 
 
 def fuel_unit(fuel: str) -> str:
-    if fuel == 'E10':
-        return 'L'
-    else:
-        return 'kg'
+    return 'L' if fuel == 'E10' else 'kg'
 
 
 def annotate_volumes(ax: Axes, xx: np.ndarray, bar_heights: np.ndarray,
@@ -128,19 +124,74 @@ def get_driven_freq(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFr
     return driven_freq_df.unstack()
 
 
+@dataclass
+class FuelEfficiency:
+    driven: int
+    volume: float
+    type: str
+
+
+def compute_fuel_efficiency(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
+    gnc_refuels_and_switches = fuel_records_df[fuel_records_df.volume.eq(
+        0) | fuel_records_df.type.isin(['GNC', 'BioGNC'])]
+
+    # discard all GNC refuels before the first tracked tank switch
+    first_tracked_switch_idx = gnc_refuels_and_switches[gnc_refuels_and_switches.volume.eq(0)].index[0]
+    gnc_refuels_and_switches = gnc_refuels_and_switches.iloc[first_tracked_switch_idx+1:]
+
+    gnc_refuels_and_switches['driven'] = gnc_refuels_and_switches['mileage'].diff()
+
+    fuel_efficiencies = []
+    fuel_efficiency = None
+    for _, record in gnc_refuels_and_switches.iterrows():
+        if fuel_efficiency is None:
+            # first refuel after a tank switch
+            fuel_efficiency = FuelEfficiency(0, record.volume, record.type)
+        else:
+            fuel_efficiency.driven += record.driven
+            fuel_efficiency.volume += record.volume
+            if record.volume == 0:
+                # tank switch
+                fuel_efficiencies.append(fuel_efficiency)
+                fuel_efficiency = None
+            else:
+                assert fuel_efficiency.type == record.type, \
+                    f'Unsupported GNC mix {fuel_efficiency.type} and {record.type}'
+
+    fuel_efficiencies_df = pd.DataFrame(fuel_efficiencies)
+    fuel_efficiencies_df['km_per_unit'] = fuel_efficiencies_df['driven'] / fuel_efficiencies_df['volume']
+    return fuel_efficiencies_df
+
+
+def print_hline():
+    print('\n')
+    print('='*15)
+    print('\n')
+
+
 def plot_fuel(path_to_fuel: str, save_dir: Optional[str]) -> None:
     # Apply the default theme
     sns.set_theme()
 
     fuel_records_df = load_fuel_records(path_to_fuel)
-    personal_co2 = compute_personal_co2(fuel_records_df)
+
+    print_hline()
 
     begin_date = fuel_records_df.iloc[0]['date']
     end_date = fuel_records_df.iloc[-1]['date']
     n_days = (end_date - begin_date).days
-    print(f'kg of CO2 emitted for {n_days} days (from {begin_date.date()} to {end_date.date()})')
+    personal_co2 = compute_personal_co2(fuel_records_df, n_days)
+    print(f'kg of CO2 emitted for {n_days} days (from {begin_date.date()} to {end_date.date()}):')
     print(personal_co2)
     print(f'total: {personal_co2["co2"].sum()} kg of CO2 equivalent')
+
+    print_hline()
+
+    fuel_efficiencies = compute_fuel_efficiency(fuel_records_df)
+    print('Fuel efficiency:')
+    print(fuel_efficiencies)
+
+    print_hline()
 
     driven_freq_df = get_driven_freq(fuel_records_df)
     fig, ax = plt.subplots(1, 1, figsize=get_figsize())
