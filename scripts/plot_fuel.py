@@ -4,6 +4,7 @@ from typing import Optional
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass
+from collections import namedtuple
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
@@ -131,17 +132,12 @@ class FuelEfficiency:
     type: str
 
 
-def compute_fuel_efficiency(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
-    # ignore all records before the first tracked tank switch
-    first_tank_switch_idx = fuel_records_df.index[fuel_records_df.volume.eq(0)][0]
-    fuel_records_df = fuel_records_df.iloc[first_tank_switch_idx+1:]
-
-    tank_switch_mask = fuel_records_df.volume.eq(0)
-    gnc_refuel_mask = fuel_records_df.type.isin(['GNC', 'BioGNC'])
-    gnc_refuels_and_switches = fuel_records_df[tank_switch_mask | gnc_refuel_mask].copy()
-    gnc_refuels_and_switches['driven'] = gnc_refuels_and_switches['mileage'].diff()
-
+def get_gnc_efficiencies(fuel_records_df: pd.DataFrame) -> list:
     fuel_efficiencies = []
+
+    gnc_mask = fuel_records_df.type.isin(['GNC', 'BioGNC']) | fuel_records_df.volume.eq(0)
+    gnc_refuels_and_switches = fuel_records_df[gnc_mask].copy()
+    gnc_refuels_and_switches['driven'] = gnc_refuels_and_switches['mileage'].diff()
     fuel_efficiency = None
     for _, record in gnc_refuels_and_switches.iterrows():
         if fuel_efficiency is None:
@@ -157,9 +153,62 @@ def compute_fuel_efficiency(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
             else:
                 assert fuel_efficiency.type == record.type, \
                     f'Unsupported GNC mix {fuel_efficiency.type} and {record.type}'
+    return fuel_efficiencies
+
+
+def is_full_tank(record: pd.Series) -> bool:
+    # full/checkpoint checkboxes aren't in exported data, so let's use "missed" to track checkpoints
+    return not record.missed
+
+
+def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> list:
+    tank_switch_mask = fuel_records_df.volume.eq(0)
+    gnc_refuel_mask = fuel_records_df.type.isin(['GNC', 'BioGNC']) & fuel_records_df.volume.gt(0)
+
+    # find the intervals of records where we drove on GNC
+    stop_idxs = fuel_records_df.index[tank_switch_mask]
+    start_candidates_idxs = fuel_records_df.index[gnc_refuel_mask]
+    gnc_driving_intervals = []
+    for stop_idx in stop_idxs:
+        gnc_driving_intervals.append([start_candidates_idxs[0], stop_idx])
+        # remove re-fueling idx that happened before the swtich
+        start_candidates_idxs = start_candidates_idxs[start_candidates_idxs > stop_idx]
+
+    fuel_records_df = fuel_records_df.copy()
+    fuel_records_df['driven'] = fuel_records_df['mileage'].diff()
+
+    first_e10_refuel_idx = fuel_records_df.index[fuel_records_df.type.eq('E10') & fuel_records_df.volume.gt(0)][0]
+
+    # process the first E10 refuel
+    fuel_records_it = fuel_records_df.loc[first_e10_refuel_idx:].iterrows()
+    _, record = next(fuel_records_it)
+    fuel_efficiency = FuelEfficiency(0, record.volume, record.type)
+
+    fuel_efficiencies = []
+    for idx, record in fuel_records_it:
+        if not any(start_gnc < idx <= stop_gnc for start_gnc, stop_gnc in gnc_driving_intervals):
+            # add up driven kms if we were not driving on GNC
+            fuel_efficiency.driven += record.driven
+            if record.volume > 0 and record.type == 'E10' and is_full_tank(record):
+                import ipdb
+                ipdb.set_trace()
+                fuel_efficiencies.append(fuel_efficiency)
+                fuel_efficiency = FuelEfficiency(0, record.volume, record.type)
+
+    return fuel_efficiencies
+
+
+def get_fuel_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
+    # ignore all records before the first tracked tank switch
+    first_tank_switch_idx = fuel_records_df.index[fuel_records_df.volume.eq(0)][0]
+    fuel_records_df = fuel_records_df[first_tank_switch_idx+1:]
+
+    fuel_efficiencies = get_gnc_efficiencies(fuel_records_df) + get_e10_efficiencies(fuel_records_df)
 
     fuel_efficiencies_df = pd.DataFrame(fuel_efficiencies)
-    fuel_efficiencies_df['km_per_unit'] = fuel_efficiencies_df['driven'] / fuel_efficiencies_df['volume']
+    fuel_efficiencies_df['unit_per_km'] = fuel_efficiencies_df['volume'] / fuel_efficiencies_df['driven']
+    fuel_efficiencies_df['unit_per_100km'] = fuel_efficiencies_df['unit_per_km'] * 100
+    fuel_efficiencies_df['km_per_unit'] = 1 / fuel_efficiencies_df['unit_per_km']
     return fuel_efficiencies_df
 
 
@@ -187,7 +236,7 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str]) -> None:
 
     print_hline()
 
-    fuel_efficiencies = compute_fuel_efficiency(fuel_records_df)
+    fuel_efficiencies = get_fuel_efficiencies(fuel_records_df)
     print('Fuel efficiency:')
     print(fuel_efficiencies)
 
