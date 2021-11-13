@@ -132,13 +132,13 @@ class FuelEfficiency:
 
 
 def compute_fuel_efficiency(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
-    gnc_refuels_and_switches = fuel_records_df[fuel_records_df.volume.eq(
-        0) | fuel_records_df.type.isin(['GNC', 'BioGNC'])]
+    # ignore all records before the first tracked tank switch
+    first_tank_switch_idx = fuel_records_df.index[fuel_records_df.volume.eq(0)][0]
+    fuel_records_df = fuel_records_df.iloc[first_tank_switch_idx+1:]
 
-    # discard all GNC refuels before the first tracked tank switch
-    first_tracked_switch_idx = gnc_refuels_and_switches[gnc_refuels_and_switches.volume.eq(0)].index[0]
-    gnc_refuels_and_switches = gnc_refuels_and_switches.iloc[first_tracked_switch_idx+1:]
-
+    tank_switch_mask = fuel_records_df.volume.eq(0)
+    gnc_refuel_mask = fuel_records_df.type.isin(['GNC', 'BioGNC'])
+    gnc_refuels_and_switches = fuel_records_df[tank_switch_mask | gnc_refuel_mask].copy()
     gnc_refuels_and_switches['driven'] = gnc_refuels_and_switches['mileage'].diff()
 
     fuel_efficiencies = []
