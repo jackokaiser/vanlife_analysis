@@ -177,12 +177,14 @@ def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> list:
     fuel_records_df = fuel_records_df.copy()
     fuel_records_df['driven'] = fuel_records_df['mileage'].diff()
 
-    first_e10_refuel_idx = fuel_records_df.index[fuel_records_df.type.eq('E10') & fuel_records_df.volume.gt(0)][0]
+    first_e10_refuel_idx = fuel_records_df.index[fuel_records_df.type.eq('E10') &
+                                                 fuel_records_df.volume.gt(0) &
+                                                 fuel_records_df.missed.eq(0)][0]
 
-    # process the first E10 refuel
+    # start with a full tank
     fuel_records_it = fuel_records_df.loc[first_e10_refuel_idx:].iterrows()
     _, record = next(fuel_records_it)
-    fuel_efficiency = FuelEfficiency(0, record.volume, record.type)
+    fuel_efficiency = FuelEfficiency(0, 0, record.type)
 
     fuel_efficiencies = []
     for idx, record in fuel_records_it:
