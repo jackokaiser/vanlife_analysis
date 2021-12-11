@@ -8,6 +8,7 @@ from bisect import bisect_left
 from datetime import datetime
 import pandas as pd
 from geopy import distance
+import numpy as np
 from dataclasses import dataclass, asdict
 
 
@@ -16,13 +17,15 @@ class Location:
     latitude: float
     longitude: float
     timestamp: int
+    accuracy: int
 
     @classmethod
     def deserialize(cls, loc: dict):
         return cls(**{
             'latitude': float(loc['latitudeE7']) / 1e7,
             'longitude': float(loc['longitudeE7']) / 1e7,
-            'timestamp': int(loc['timestampMs']) // 1000
+            'timestamp': int(loc['timestampMs']) // 1000,
+            'accuracy': loc['accuracy']
         })
 
     @property
@@ -87,12 +90,18 @@ def get_date(location: dict) -> datetime:
     return datetime.fromtimestamp(int(location['timestampMs']) / 1000)
 
 
-def subsample_locations(locations: list, min_km_thresh: float = 10, max_km_thresh: float = 50) -> list:
-    subsampled_locations = [locations[0]]
-    for location in locations[1:]:
-        if min_km_thresh < distance.distance(subsampled_locations[-1].latlon, location.latlon).km < max_km_thresh:
-            subsampled_locations.append(location)
+def subsample_locations(locations: list, min_km_thresh: float = 10, outlier_km_thresh: float = 50) -> list:
+    distances = np.array([distance.distance(loc_a.latlon, loc_b.latlon).km
+                          for loc_a, loc_b in zip(locations[:-1], locations[1:])])
 
+    def is_outlier(ii: int) -> bool:
+        return distances[ii] > outlier_km_thresh
+
+    subsampled_locations = [locations[0]]
+    for ii, location in enumerate(locations[1:]):
+        dist = distance.distance(subsampled_locations[-1].latlon, location.latlon).km
+        if min_km_thresh < dist and not is_outlier(ii):
+            subsampled_locations.append(location)
     return subsampled_locations
 
 
