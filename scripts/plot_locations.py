@@ -35,6 +35,37 @@ def load_json(path_to_json: str) -> dict:
         return json.load(file)
 
 
+def to_kml(locations: list, save_path: str) -> None:
+    coordinates = '\n'.join([f'{location.longitude}, {location.latitude}' for location in locations])
+    kml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+        <name>Trip</name>
+        <description>Paths in KML.</description>
+        <Style id="lineStyle">
+          <LineStyle>
+                <color>eb3446ff</color>
+                <width>4</width>
+          </LineStyle>
+        </Style>
+        <Placemark>
+          <name>Trip</name>
+          <description>Path of the trip</description>
+          <styleUrl>#lineStyle</styleUrl>
+          <LineString>
+                <extrude>1</extrude>
+                <tessellate>1</tessellate>
+                <coordinates>
+                    {coordinates}
+                </coordinates>
+          </LineString>
+        </Placemark>
+  </Document>
+</kml>'''
+    with open(save_path, "w") as file:
+        file.write(kml)
+
+
 def parse_date_interval(date_interval: list) -> tuple:
     assert len(date_interval) == 2, 'There should be one start and one end date'
     start_date = parse(date_interval[0])
@@ -56,10 +87,10 @@ def get_date(location: dict) -> datetime:
     return datetime.fromtimestamp(int(location['timestampMs']) / 1000)
 
 
-def subsample_locations(locations: list, km_thresh: float = 10) -> list:
+def subsample_locations(locations: list, min_km_thresh: float = 10, max_km_thresh: float = 50) -> list:
     subsampled_locations = [locations[0]]
     for location in locations[1:]:
-        if distance.distance(subsampled_locations[-1].latlon, location.latlon).km > km_thresh:
+        if min_km_thresh < distance.distance(subsampled_locations[-1].latlon, location.latlon).km < max_km_thresh:
             subsampled_locations.append(location)
 
     return subsampled_locations
@@ -82,12 +113,12 @@ def plot_locations(path_to_location_zip: str, date_interval: list, save_dir: str
     locations = extract_locations_in_interval(location_history['locations'], start_date, stop_date)
     locations = [Location.deserialize(loc) for loc in locations]
     locations = subsample_locations(locations)
-    locations_df = convert_to_df(locations)
-    locations_df.to_csv(os.path.join(save_dir, 'locations.csv'), index=False)
+    convert_to_df(locations).to_csv(os.path.join(save_dir, 'locations.csv'), index=False)
+    to_kml(locations, os.path.join(save_dir, 'locations.kml'))
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description='Script to plot locations')
+    parser = argparse.ArgumentParser(description='Script to plot locations in google my maps')
     parser.add_argument('--location_zip', help='Path to the zipped exported takeout location', type=str, required=True,
                         dest='path_to_location_zip')
     parser.add_argument('--date_interval', help='Date interval for plotting locations', nargs='+', type=str,
