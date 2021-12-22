@@ -3,13 +3,14 @@ import os
 import json
 import shutil
 import tempfile
-from dateutil.parser import parse
 from bisect import bisect_left
 from datetime import datetime
 import pandas as pd
 from geopy import distance
 import numpy as np
 from dataclasses import dataclass, asdict
+
+from vanlife_analysis.utils import parse_date_interval
 
 
 @dataclass
@@ -67,14 +68,6 @@ def to_kml(locations: list, save_path: str) -> None:
 </kml>'''
     with open(save_path, "w") as file:
         file.write(kml)
-
-
-def parse_date_interval(date_interval: list) -> tuple:
-    assert len(date_interval) == 2, 'There should be one start and one end date'
-    start_date = parse(date_interval[0])
-    stop_date = parse(date_interval[1])
-    assert start_date < stop_date, 'Start date should be before stop date'
-    return start_date, stop_date
 
 
 def load_location_history(path_to_location_zip: str) -> dict:

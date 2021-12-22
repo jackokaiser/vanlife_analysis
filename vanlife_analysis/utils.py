@@ -4,11 +4,20 @@ import shutil
 import os
 import pandas as pd
 import numpy as np
+from dateutil.parser import parse
 
 
 def get_figsize(fig_height: float = 10.0) -> tuple([float, float]):
     golden = (1 + np.sqrt(5)) / 2.0
     return (fig_height * golden, fig_height)
+
+
+def parse_date_interval(date_interval: list) -> tuple:
+    assert len(date_interval) == 2, 'There should be one start and one end date'
+    start_date = parse(date_interval[0])
+    stop_date = parse(date_interval[1])
+    assert start_date < stop_date, 'Start date should be before stop date'
+    return start_date, stop_date
 
 
 def uncompress_and_load(ann_dir_or_zip: str, data_loader: Callable) -> list:
