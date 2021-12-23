@@ -8,7 +8,7 @@ import seaborn as sns
 
 from scipy import stats
 
-from vanlife_analysis.utils import parse_date_interval
+from vanlife_analysis.utils import parse_date_interval, get_figsize
 
 
 def plot_monthly_expenses(df: pd.DataFrame, others_thresh: float = 0.03) -> plt.Figure:
@@ -19,7 +19,7 @@ def plot_monthly_expenses(df: pd.DataFrame, others_thresh: float = 0.03) -> plt.
     print(f'total cost: {total_cost:.0f}€')
 
     height = 7
-    fig, axs = plt.subplots(1, 2, figsize=[1.618 * height, height])
+    fig, axs = plt.subplots(1, 2, figsize=get_figsize(height))
 
     mask_others = (categories / total_cost) >= others_thresh
     series_others = pd.Series([categories[~mask_others].sum()], index=['Others'])
@@ -28,8 +28,8 @@ def plot_monthly_expenses(df: pd.DataFrame, others_thresh: float = 0.03) -> plt.
     masked_categories = masked_categories.append(series_others)
     masked_categories.sort_values(ascending=False, inplace=True)
 
-    masked_categories.plot.pie(ylabel='Cost', ax=axs[0], legend=False, autopct='%.0f%%', pctdistance=0.7)
-    masked_categories.plot.bar(ylabel='Cost', ax=axs[1], rot=60)
+    masked_categories.plot.pie(ylabel='', ax=axs[0], legend=False, autopct='%.0f%%', pctdistance=0.7)
+    masked_categories.plot.bar(ylabel='Cost [€]', ax=axs[1], rot=60)
     plt.tight_layout()
     return fig, total_cost
 
@@ -46,7 +46,7 @@ def cleanup_df(df: pd.DataFrame) -> None:
 
 
 def plot_expenses(path_to_expenses: str, save_dir: str, date_interval: Optional[list]):
-    sns.set_theme(style="whitegrid", context="talk")
+    sns.set_theme(style="ticks", context="talk", rc={"axes.spines.right": False, "axes.spines.top": False})
     plt.style.use("dark_background")
     sns.set_palette("muted")
     os.makedirs(save_dir, exist_ok=True)
