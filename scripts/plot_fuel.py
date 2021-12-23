@@ -13,7 +13,7 @@ import seaborn as sns
 from vanlife_analysis.utils import load_fuel_records, get_figsize, parse_date_interval
 
 
-def is_full_refull(record: pd.Series) -> bool:
+def is_full_refill(record: pd.Series) -> bool:
     # full/checkpoint checkboxes aren't in exported data, so let's use "missed" to track checkpoints
     return not record.missed and not is_tank_switch(record)
 
@@ -195,34 +195,40 @@ def get_gnc_efficiencies(fuel_records_df: pd.DataFrame) -> list:
 
 
 def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> list:
-    first_tank_switch_idx = fuel_records_df.index[fuel_records_df.volume.eq(0)][0]
-    e10_refills_idxs = fuel_records_df.index[(fuel_records_df.type == 'E10')
-                                             & (~fuel_records_df.missed)
-                                             & (fuel_records_df.volume > 0)]
-    first_e10_refill_idx_after_first_switch = e10_refills_idxs[e10_refills_idxs > first_tank_switch_idx][0]
-
-    fuel_records_df_cropped = fuel_records_df.copy()
+    first_tank_switch_idx = fuel_records_df.index[fuel_records_df.apply(is_tank_switch, axis=1)][0]
+    drop_mask = (fuel_records_df.index < first_tank_switch_idx + 1)
+    fuel_records_df_cropped = fuel_records_df.drop(fuel_records_df.index[drop_mask])
     fuel_records_df_cropped['driven'] = fuel_records_df_cropped['mileage'].diff()
-    fuel_records_df_cropped = fuel_records_df_cropped[first_e10_refill_idx_after_first_switch+1:]
 
+    # fast-forward to first full E10 refill, keeping track of current_type
+    current_type = 'E10'
+    fuel_records_it = fuel_records_df_cropped.iterrows()
+    for _, record in fuel_records_it:
+        if is_e10_refill(record) and is_full_refill(record):
+            break
+        elif is_gnc_refill(record):
+            current_type = record.type
+        elif is_tank_switch(record):
+            current_type = 'E10'
+
+    # continue the iteration, starting with full tank of E10
     fuel_efficiencies = []
     current_driven = 0
     current_volume = 0
     current_cost = 0
-    current_type = 'E10'
 
-    for _, record in fuel_records_df_cropped.iterrows():
+    for _, record in fuel_records_it:
         if current_type == 'E10':
             current_driven += record.driven
 
         if is_e10_refill(record):
             current_volume += record.volume
             current_cost += record.cost
-            if not record.missed:
+            if is_full_refill(record):
                 fuel_efficiencies.append(FuelEfficiency(current_driven, current_volume, current_cost, 'E10'))
-                current_driven = 0
                 current_volume = 0
                 current_cost = 0
+                current_driven = 0
         elif is_gnc_refill(record):
             current_type = record.type
         elif is_tank_switch(record):
@@ -231,12 +237,17 @@ def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> list:
     return fuel_efficiencies
 
 
-def filter_fuel_efficiencies_outliers(fuel_efficiencies: list, gnc_km_per_unit_thresh: float = 16) -> list:
+def filter_fuel_efficiencies_outliers(fuel_efficiencies: list, gnc_km_per_unit_upper_thresh: float = 16,
+                                      e10_km_per_unit_lower_thresh: float = 4.5) -> list:
     filtered_fuel_efficiencies = []
     for fuel_efficiency in fuel_efficiencies:
         if (fuel_efficiency.type == 'GNC' or fuel_efficiency.type == 'BioGNC') and \
-           (fuel_efficiency.km_per_unit() > gnc_km_per_unit_thresh):
-            print(f'Dropping {fuel_efficiency}: {fuel_efficiency.km_per_unit()}km/kg > {gnc_km_per_unit_thresh}km/kg'
+           (fuel_efficiency.km_per_unit() > gnc_km_per_unit_upper_thresh):
+            print(f'Dropping {fuel_efficiency}: {fuel_efficiency.km_per_unit()}km/kg > {gnc_km_per_unit_upper_thresh}km/kg'
+                  ' (did you forget to record a tank switch?)')
+            continue
+        elif (fuel_efficiency.type == 'E10') and fuel_efficiency.km_per_unit() < e10_km_per_unit_lower_thresh:
+            print(f'Dropping {fuel_efficiency}: {fuel_efficiency.km_per_unit()}km/L < {e10_km_per_unit_lower_thresh}km/L'
                   ' (did you forget to record a tank switch?)')
             continue
         filtered_fuel_efficiencies.append(fuel_efficiency)
