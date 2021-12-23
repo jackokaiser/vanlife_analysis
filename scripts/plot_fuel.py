@@ -10,7 +10,24 @@ from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
 import seaborn as sns
 
-from vanlife_analysis.utils import load_fuel_records, get_figsize
+from vanlife_analysis.utils import load_fuel_records, get_figsize, parse_date_interval
+
+
+def is_full_refull(record: pd.Series) -> bool:
+    # full/checkpoint checkboxes aren't in exported data, so let's use "missed" to track checkpoints
+    return not record.missed and not is_tank_switch(record)
+
+
+def is_tank_switch(record: pd.Series) -> bool:
+    return np.isclose(record.volume, 0, atol=0.001)
+
+
+def is_gnc_refill(record: pd.Series) -> bool:
+    return record.type in ['GNC', 'BioGNC'] and not is_tank_switch(record)
+
+
+def is_e10_refill(record: pd.Series) -> bool:
+    return record.type == 'E10' and not is_tank_switch(record)
 
 
 def compute_personal_co2(fuel_records_df: pd.DataFrame, n_days: int) -> pd.DataFrame:
@@ -117,10 +134,8 @@ def draw_driven_km(ax: Axes, driven_freq_df: pd.DataFrame) -> None:
 
 
 def get_driven_freq(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFrame:
-    driven_freq_df = fuel_records_df[['date']].copy()
+    driven_freq_df = fuel_records_df[['date', 'type', 'volume']].copy()
     driven_freq_df['driven'] = fuel_records_df['mileage'].diff()
-    driven_freq_df['type'] = fuel_records_df['type']
-    driven_freq_df['volume'] = fuel_records_df['volume']
     driven_freq_df = driven_freq_df.groupby([pd.Grouper(key='date', freq=freq), 'type']).sum()
     return driven_freq_df.unstack()
 
@@ -129,85 +144,114 @@ def get_driven_freq(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFr
 class FuelEfficiency:
     driven: int
     volume: float
+    cost: float
     type: str
+
+    def km_per_unit(self) -> float:
+        return self.driven / self.volume
+
+    def unit_per_km(self) -> float:
+        return 1.0 / self.km_per_unit
 
 
 def get_gnc_efficiencies(fuel_records_df: pd.DataFrame) -> list:
+    first_tank_switch_idx = fuel_records_df.index[fuel_records_df.apply(is_tank_switch, axis=1)][0]
+    # remove indexes before first tank switch (with start with an empty gnc tank)
+    drop_mask = (fuel_records_df.index < first_tank_switch_idx + 1)
+    # remove indexes that aren't gnc refills or tank switches
+    drop_mask |= ((~fuel_records_df.apply(is_gnc_refill, axis=1)) & (~fuel_records_df.apply(is_tank_switch, axis=1)))
+    gnc_refuels_and_switches = fuel_records_df.drop(fuel_records_df.index[drop_mask])
+    gnc_refuels_and_switches['driven'] = gnc_refuels_and_switches['mileage'].diff()
+
     fuel_efficiencies = []
 
-    gnc_mask = fuel_records_df.type.isin(['GNC', 'BioGNC']) | fuel_records_df.volume.eq(0)
-    gnc_refuels_and_switches = fuel_records_df[gnc_mask].copy()
-    gnc_refuels_and_switches['driven'] = gnc_refuels_and_switches['mileage'].diff()
-    fuel_efficiency = None
+    current_driven = 0
+    current_volume = 0
+    current_cost = 0
+    current_type = None
+
     for _, record in gnc_refuels_and_switches.iterrows():
-        if fuel_efficiency is None:
-            # first refuel after a tank switch
-            fuel_efficiency = FuelEfficiency(0, record.volume, record.type)
+        if current_type is not None:
+            current_driven += record.driven
+
+        if is_gnc_refill(record):
+            if current_type is None:
+                current_type = record.type
+            assert current_type == record.type, f'Unsupported GNC mix {current_type} and {record.type}'
+            current_volume += record.volume
+            current_cost += record.cost
+        elif is_tank_switch(record):
+            assert current_type is not None, 'Subsequent tank switch'
+            fuel_efficiency = FuelEfficiency(current_driven, current_volume, current_cost, current_type)
+            fuel_efficiencies.append(fuel_efficiency)
+            current_driven = 0
+            current_volume = 0
+            current_cost = 0
+            current_type = None
         else:
-            fuel_efficiency.driven += record.driven
-            fuel_efficiency.volume += record.volume
-            if record.volume == 0:
-                # tank switch
-                fuel_efficiencies.append(fuel_efficiency)
-                fuel_efficiency = None
-            else:
-                assert fuel_efficiency.type == record.type, \
-                    f'Unsupported GNC mix {fuel_efficiency.type} and {record.type}'
+            raise RuntimeError(f'Unexpected record: {record}')
+
     return fuel_efficiencies
-
-
-def is_full_tank(record: pd.Series) -> bool:
-    # full/checkpoint checkboxes aren't in exported data, so let's use "missed" to track checkpoints
-    return not record.missed
 
 
 def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> list:
-    tank_switch_mask = fuel_records_df.volume.eq(0)
-    gnc_refuel_mask = fuel_records_df.type.isin(['GNC', 'BioGNC']) & fuel_records_df.volume.gt(0)
+    first_tank_switch_idx = fuel_records_df.index[fuel_records_df.volume.eq(0)][0]
+    e10_refills_idxs = fuel_records_df.index[(fuel_records_df.type == 'E10')
+                                             & (~fuel_records_df.missed)
+                                             & (fuel_records_df.volume > 0)]
+    first_e10_refill_idx_after_first_switch = e10_refills_idxs[e10_refills_idxs > first_tank_switch_idx][0]
 
-    # find the intervals of records where we drove on GNC
-    stop_idxs = fuel_records_df.index[tank_switch_mask]
-    start_candidates_idxs = fuel_records_df.index[gnc_refuel_mask]
-    gnc_driving_intervals = []
-    for stop_idx in stop_idxs:
-        gnc_driving_intervals.append([start_candidates_idxs[0], stop_idx])
-        # remove re-fueling idx that happened before the swtich
-        start_candidates_idxs = start_candidates_idxs[start_candidates_idxs > stop_idx]
-
-    fuel_records_df = fuel_records_df.copy()
-    fuel_records_df['driven'] = fuel_records_df['mileage'].diff()
-
-    first_e10_refuel_idx = fuel_records_df.index[fuel_records_df.type.eq('E10') &
-                                                 fuel_records_df.volume.gt(0) &
-                                                 fuel_records_df.missed.eq(0)][0]
-
-    # start with a full tank
-    fuel_records_it = fuel_records_df.loc[first_e10_refuel_idx:].iterrows()
-    _, record = next(fuel_records_it)
-    fuel_efficiency = FuelEfficiency(0, 0, record.type)
+    fuel_records_df_cropped = fuel_records_df.copy()
+    fuel_records_df_cropped['driven'] = fuel_records_df_cropped['mileage'].diff()
+    fuel_records_df_cropped = fuel_records_df_cropped[first_e10_refill_idx_after_first_switch+1:]
 
     fuel_efficiencies = []
-    for idx, record in fuel_records_it:
-        if not any(start_gnc < idx <= stop_gnc for start_gnc, stop_gnc in gnc_driving_intervals):
-            # add up driven kms if we were not driving on GNC
-            fuel_efficiency.driven += record.driven
+    current_driven = 0
+    current_volume = 0
+    current_cost = 0
+    current_type = 'E10'
 
-        if record.volume > 0 and record.type == 'E10':
-            if is_full_tank(record):
-                fuel_efficiencies.append(fuel_efficiency)
-                fuel_efficiency = FuelEfficiency(0, record.volume, record.type)
-            else:
-                fuel_efficiency.volume += record.volume
+    for _, record in fuel_records_df_cropped.iterrows():
+        if current_type == 'E10':
+            current_driven += record.driven
+
+        if is_e10_refill(record):
+            current_volume += record.volume
+            current_cost += record.cost
+            if not record.missed:
+                fuel_efficiencies.append(FuelEfficiency(current_driven, current_volume, current_cost, 'E10'))
+                current_driven = 0
+                current_volume = 0
+                current_cost = 0
+        elif is_gnc_refill(record):
+            current_type = record.type
+        elif is_tank_switch(record):
+            current_type = 'E10'
 
     return fuel_efficiencies
+
+
+def filter_fuel_efficiencies_outliers(fuel_efficiencies: list, gnc_km_per_unit_thresh: float = 16) -> list:
+    filtered_fuel_efficiencies = []
+    for fuel_efficiency in fuel_efficiencies:
+        if (fuel_efficiency.type == 'GNC' or fuel_efficiency.type == 'BioGNC') and \
+           (fuel_efficiency.km_per_unit() > gnc_km_per_unit_thresh):
+            print(f'Dropping {fuel_efficiency}: {fuel_efficiency.km_per_unit()}km/kg > {gnc_km_per_unit_thresh}km/kg'
+                  ' (did you forget to record a tank switch?)')
+            continue
+        filtered_fuel_efficiencies.append(fuel_efficiency)
+    return filtered_fuel_efficiencies
 
 
 def get_fuel_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
     # ignore all records before the first tracked tank switch
     first_tank_switch_idx = fuel_records_df.index[fuel_records_df.volume.eq(0)][0]
-    fuel_records_df = fuel_records_df[first_tank_switch_idx+1:]
+    gnc_refills_idxs = fuel_records_df.index[fuel_records_df.type.isin(['GNC', 'BioGNC']) & (~fuel_records_df.missed)]
+    last_gnc_refill_idx_before_first_switch = gnc_refills_idxs[gnc_refills_idxs < first_tank_switch_idx][-1]
+    fuel_records_df = fuel_records_df[last_gnc_refill_idx_before_first_switch:]
 
     fuel_efficiencies = get_gnc_efficiencies(fuel_records_df) + get_e10_efficiencies(fuel_records_df)
+    fuel_efficiencies = filter_fuel_efficiencies_outliers(fuel_efficiencies)
 
     fuel_efficiencies_df = pd.DataFrame(fuel_efficiencies)
     fuel_efficiencies_df['unit_per_km'] = fuel_efficiencies_df['volume'] / fuel_efficiencies_df['driven']
@@ -222,19 +266,27 @@ def print_hline():
     print('\n')
 
 
-def plot_fuel(path_to_fuel: str, save_dir: Optional[str]) -> None:
-    # Apply the default theme
-    sns.set_theme()
+def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optional[list]) -> None:
+    sns.set_theme(style="ticks", context="talk", rc={"axes.spines.right": False, "axes.spines.top": False})
+    plt.style.use("dark_background")
+    sns.set_palette("muted")
 
     fuel_records_df = load_fuel_records(path_to_fuel)
 
     print_hline()
 
-    begin_date = fuel_records_df.iloc[0]['date']
-    end_date = fuel_records_df.iloc[-1]['date']
-    n_days = (end_date - begin_date).days
+    if date_interval is not None:
+        start_date, end_date = parse_date_interval(date_interval)
+        fuel_records_df = fuel_records_df[(start_date <= fuel_records_df['date'])
+                                          & (fuel_records_df['date'] <= end_date)]
+    else:
+        start_date = fuel_records_df.iloc[0]['date']
+        end_date = fuel_records_df.iloc[-1]['date']
+
+    n_days = (end_date - start_date).days
+
     personal_co2 = compute_personal_co2(fuel_records_df, n_days)
-    print(f'kg of CO2 emitted for {n_days} days (from {begin_date.date()} to {end_date.date()}):')
+    print(f'kg of CO2 emitted for {n_days} days (from {start_date.date()} to {end_date.date()}):')
     print(personal_co2)
     print(f'total: {personal_co2["co2"].sum()} kg of CO2 equivalent')
 
@@ -262,6 +314,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Script to plot fuel usage and related co2 emissions')
     parser.add_argument('--fuel', help='Path to the exported fuel manager csv', type=str, required=True,
                         dest='path_to_fuel')
+    parser.add_argument('--date_interval', help='Date interval for plotting locations', nargs='+', type=str,
+                        required=False)
     parser.add_argument('--save_dir', help='Directory where the computed data is saved', type=str, required=False)
     return parser.parse_args()
 
