@@ -93,15 +93,12 @@ def annotate_volumes(ax: Axes, xx: np.ndarray, bar_heights: np.ndarray,
                      bar_values: np.ndarray, fuels: np.ndarray) -> None:
     assert bar_heights.shape == bar_values.shape
     assert len(xx) == len(bar_heights) == len(bar_values)
-
+    y_heights = np.hstack((np.zeros((len(bar_heights), 1)), np.cumsum(bar_heights, axis=1)[:, :-1])) + bar_heights / 2
     too_little_volume = 5
-    for x, heights, values in zip(xx, bar_heights, bar_values):
-        y = 0
-        for fuel, height, value in zip(fuels, heights, values):
-            y += height / 2
-            if not np.isclose(value, 0, atol=too_little_volume):
-                ax.annotate(f'{int(value)} {fuel_unit(fuel)}', (x, y), ha='center', va='center')
-            y += height / 2
+    for x, yy, values in zip(xx, y_heights, bar_values):
+        for y, fuel, value in zip(yy, fuels, values):
+            if not value < too_little_volume:
+                ax.annotate(f'{int(value)}{fuel_unit(fuel)}', (x, y), ha='center', va='center')
 
 
 def get_driven_freq(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFrame:
@@ -234,16 +231,19 @@ def get_fuel_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def draw_fuel_efficiencies(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
+    sns.set_context('poster')
     fig, ax = plt.subplots(1, 1, figsize=get_figsize())
+    avg_fuel_efficiencies['euro_per_km'].plot(kind='bar', ax=ax)
     ax.set_ylabel('Price [€/km]')
-
+    ax.set_xlabel('Fuel type')
     annotate_euros(ax)
     E10_km_per_unit = avg_fuel_efficiencies[avg_fuel_efficiencies.index.str.match("E10")]['km_per_unit'][0]
     print(f'E10 fuel consumption: {1 / E10_km_per_unit * 100:.1f} L/100km')
     return fig
 
 
-def draw_driven_km(driven_freq_df: pd.DataFrame) -> plt.Figure:
+def draw_driven_km(driven_freq_df: pd.DataFrame, avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
+    sns.set_context('talk')
     fig, ax = plt.subplots(1, 1, figsize=get_figsize())
 
     def line_format(date):
@@ -255,21 +255,17 @@ def draw_driven_km(driven_freq_df: pd.DataFrame) -> plt.Figure:
             month += f'\n{date.year}'
         return month
 
-    driven_kms = driven_freq_df['driven'].sum(axis=1).values
-    driven_volume_df = driven_freq_df['volume']
-    driven_volumes = driven_volume_df.sum(axis=1).values
-    scaling_factors = driven_kms / driven_volumes
+    column_names = driven_freq_df['volume'].columns.categories.tolist()
+    real_driven_kms = driven_freq_df['driven'].sum(axis=1)
+    # stacked bar plot: each fuel bar is normalized by volume * km_per_unit
+    tanked_kms = driven_freq_df['volume'] * avg_fuel_efficiencies['km_per_unit']
+    normalized_driven_kms = tanked_kms.div(tanked_kms.sum(axis=1), axis=0).mul(real_driven_kms, axis=0)
+    normalized_driven_kms = normalized_driven_kms[column_names]
 
-    renormalized_driven_volume_df = driven_volume_df.copy()
-    for col in driven_volume_df.columns:
-        renormalized_driven_volume_df[col] *= scaling_factors
-
-    renormalized_driven_volume_df.plot(ax=ax, kind='bar', ylabel='km', stacked=True)
+    normalized_driven_kms.plot(ax=ax, kind='bar', ylabel='km', stacked=True)
     ax.set_xticklabels([line_format(index) for index in driven_freq_df.index])
-
-    annotate_kms(ax, ax.get_xticks(), driven_kms)
-    annotate_volumes(ax, ax.get_xticks(), renormalized_driven_volume_df.values,
-                     driven_volume_df.values, driven_volume_df.columns.categories.values)
+    annotate_kms(ax, ax.get_xticks(), real_driven_kms.values)
+    annotate_volumes(ax, ax.get_xticks(), normalized_driven_kms.values, driven_freq_df['volume'].values, column_names)
     return fig
 
 
@@ -280,7 +276,7 @@ def print_hline():
 
 
 def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optional[list]) -> None:
-    sns.set_theme(style="ticks", context="talk", rc={"axes.spines.right": False, "axes.spines.top": False})
+    sns.set_theme(style="ticks", context="poster", rc={"axes.spines.right": False, "axes.spines.top": False})
     plt.style.use("dark_background")
     sns.set_palette("muted")
 
@@ -313,10 +309,9 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
     avg_fuel_efficiencies['euro_per_km'] = avg_fuel_efficiencies['cost'] / avg_fuel_efficiencies['driven']
 
     print_hline()
-
     driven_freq_df = get_driven_freq(fuel_records_df)
 
-    fig_driven_km = draw_driven_km(driven_freq_df)
+    fig_driven_km = draw_driven_km(driven_freq_df, avg_fuel_efficiencies)
     fig_fuel_efficiencies = draw_fuel_efficiencies(avg_fuel_efficiencies)
 
     if save_dir is not None:
