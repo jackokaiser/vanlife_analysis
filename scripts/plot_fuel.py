@@ -71,14 +71,12 @@ def compute_personal_co2(fuel_records_df: pd.DataFrame, n_days: int) -> pd.DataF
     return personal_co2
 
 
-def annotate_rectangles(ax: Axes) -> None:
+def annotate_euros(ax: Axes) -> None:
     for rectangle in ax.patches:
         height = rectangle.get_height()
-        too_few_kms = 50
-        if not np.isclose(height, 0, atol=too_few_kms):
-            x = rectangle.get_x() + rectangle.get_width() / 2.0
-            y = rectangle.get_y() + height - too_few_kms
-            ax.annotate(f'{int(height)} km', (x, y), ha='center', va='top')
+        x = rectangle.get_x() + rectangle.get_width() / 2.0
+        y = rectangle.get_y() + height
+        ax.annotate(f'{height:.2f} €', (x, height), ha='center', va='bottom')
 
 
 def annotate_kms(ax: Axes, xx: np.ndarray, yy: np.ndarray) -> None:
@@ -104,33 +102,6 @@ def annotate_volumes(ax: Axes, xx: np.ndarray, bar_heights: np.ndarray,
             if not np.isclose(value, 0, atol=too_little_volume):
                 ax.annotate(f'{int(value)} {fuel_unit(fuel)}', (x, y), ha='center', va='center')
             y += height / 2
-
-
-def draw_driven_km(ax: Axes, driven_freq_df: pd.DataFrame) -> None:
-    def line_format(date):
-        """
-        Convert time label to the format of pandas line plot
-        """
-        month = date.month_name()[:3]
-        if month == 'Jan':
-            month += f'\n{date.year}'
-        return month
-
-    driven_kms = driven_freq_df['driven'].sum(axis=1).values
-    driven_volume_df = driven_freq_df['volume']
-    driven_volumes = driven_volume_df.sum(axis=1).values
-    scaling_factors = driven_kms / driven_volumes
-
-    renormalized_driven_volume_df = driven_volume_df.copy()
-    for col in driven_volume_df.columns:
-        renormalized_driven_volume_df[col] *= scaling_factors
-
-    renormalized_driven_volume_df.plot(ax=ax, kind='bar', ylabel='km', stacked=True)
-    ax.set_xticklabels([line_format(index) for index in driven_freq_df.index])
-
-    annotate_kms(ax, ax.get_xticks(), driven_kms)
-    annotate_volumes(ax, ax.get_xticks(), renormalized_driven_volume_df.values,
-                     driven_volume_df.values, driven_volume_df.columns.categories.values)
 
 
 def get_driven_freq(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFrame:
@@ -255,20 +226,51 @@ def filter_fuel_efficiencies_outliers(fuel_efficiencies: list, gnc_km_per_unit_u
 
 
 def get_fuel_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
-    # ignore all records before the first tracked tank switch
-    first_tank_switch_idx = fuel_records_df.index[fuel_records_df.volume.eq(0)][0]
-    gnc_refills_idxs = fuel_records_df.index[fuel_records_df.type.isin(['GNC', 'BioGNC']) & (~fuel_records_df.missed)]
-    last_gnc_refill_idx_before_first_switch = gnc_refills_idxs[gnc_refills_idxs < first_tank_switch_idx][-1]
-    fuel_records_df = fuel_records_df[last_gnc_refill_idx_before_first_switch:]
-
     fuel_efficiencies = get_gnc_efficiencies(fuel_records_df) + get_e10_efficiencies(fuel_records_df)
     fuel_efficiencies = filter_fuel_efficiencies_outliers(fuel_efficiencies)
 
     fuel_efficiencies_df = pd.DataFrame(fuel_efficiencies)
-    fuel_efficiencies_df['unit_per_km'] = fuel_efficiencies_df['volume'] / fuel_efficiencies_df['driven']
-    fuel_efficiencies_df['unit_per_100km'] = fuel_efficiencies_df['unit_per_km'] * 100
-    fuel_efficiencies_df['km_per_unit'] = 1 / fuel_efficiencies_df['unit_per_km']
     return fuel_efficiencies_df
+
+
+def draw_fuel_efficiencies(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
+    fig, ax = plt.subplots(1, 1, figsize=get_figsize())
+    ax.set_ylabel('Price [€/km]')
+
+    annotate_euros(ax)
+    E10_km_per_unit = avg_fuel_efficiencies[avg_fuel_efficiencies.index.str.match("E10")]['km_per_unit'][0]
+    print(f'E10 fuel consumption: {1 / E10_km_per_unit * 100:.1f} L/100km')
+    return fig
+
+
+def draw_driven_km(driven_freq_df: pd.DataFrame) -> plt.Figure:
+    fig, ax = plt.subplots(1, 1, figsize=get_figsize())
+
+    def line_format(date):
+        """
+        Convert time label to the format of pandas line plot
+        """
+        month = date.month_name()[:3]
+        if month == 'Jan':
+            month += f'\n{date.year}'
+        return month
+
+    driven_kms = driven_freq_df['driven'].sum(axis=1).values
+    driven_volume_df = driven_freq_df['volume']
+    driven_volumes = driven_volume_df.sum(axis=1).values
+    scaling_factors = driven_kms / driven_volumes
+
+    renormalized_driven_volume_df = driven_volume_df.copy()
+    for col in driven_volume_df.columns:
+        renormalized_driven_volume_df[col] *= scaling_factors
+
+    renormalized_driven_volume_df.plot(ax=ax, kind='bar', ylabel='km', stacked=True)
+    ax.set_xticklabels([line_format(index) for index in driven_freq_df.index])
+
+    annotate_kms(ax, ax.get_xticks(), driven_kms)
+    annotate_volumes(ax, ax.get_xticks(), renormalized_driven_volume_df.values,
+                     driven_volume_df.values, driven_volume_df.columns.categories.values)
+    return fig
 
 
 def print_hline():
@@ -306,19 +308,25 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
     fuel_efficiencies = get_fuel_efficiencies(fuel_records_df)
     print('Fuel efficiency:')
     print(fuel_efficiencies)
+    avg_fuel_efficiencies = fuel_efficiencies.groupby(['type']).sum()
+    avg_fuel_efficiencies['km_per_unit'] = avg_fuel_efficiencies['driven'] / avg_fuel_efficiencies['volume']
+    avg_fuel_efficiencies['euro_per_km'] = avg_fuel_efficiencies['cost'] / avg_fuel_efficiencies['driven']
 
     print_hline()
 
     driven_freq_df = get_driven_freq(fuel_records_df)
-    fig, ax = plt.subplots(1, 1, figsize=get_figsize())
-    draw_driven_km(ax, driven_freq_df)
+
+    fig_driven_km = draw_driven_km(driven_freq_df)
+    fig_fuel_efficiencies = draw_fuel_efficiencies(avg_fuel_efficiencies)
 
     if save_dir is not None:
         os.makedirs(save_dir, exist_ok=True)
-        fig.savefig(os.path.join(save_dir, 'driven_km.png'), bbox_inches='tight')
+        fig_driven_km.savefig(os.path.join(save_dir, 'driven_km.png'), bbox_inches='tight')
+        fig_fuel_efficiencies.savefig(os.path.join(save_dir, 'fuel_efficiencies.png'), bbox_inches='tight')
     else:
         plt.show()
-    plt.close(fig)
+    plt.close(fig_driven_km)
+    plt.close(fig_fuel_efficiencies)
 
 
 def parse_args() -> argparse.Namespace:
