@@ -59,15 +59,6 @@ def compute_personal_co2(fuel_records_df: pd.DataFrame, n_days: int) -> pd.DataF
         }
         personal_co2 = personal_co2.append(fuel_data, ignore_index=True)
 
-    # food
-    # source: https://librairie.ademe.fr/consommer-autrement/779-empreinte-energetique-et-carbone-de-l-alimentation-en-france.html
-    france_co2_for_food = 163 * 10**9
-    n_french = 67.06 * 10**6
-
-    personal_co2 = personal_co2.append({
-        'name': 'food',
-        'co2': int(france_co2_for_food / n_french) / 365 * n_days
-    }, ignore_index=True)
     return personal_co2
 
 
