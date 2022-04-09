@@ -49,7 +49,7 @@ def compute_personal_co2(fuel_records_df: pd.DataFrame, n_days: int) -> pd.DataF
 
     personal_co2 = pd.DataFrame()
     for fuel, kg_per_unit in co2_per_fuel.items():
-        fuel_records = fuel_records_df[fuel_records_df['type'] == fuel]
+        fuel_records = fuel_records_df[fuel_records_df['type'].eq(fuel)]
         consumption = fuel_records['volume'].sum()
         fuel_data = {
             'name': fuel,
@@ -266,7 +266,6 @@ def draw_driven_km(driven_freq_df: pd.DataFrame, avg_fuel_efficiencies: pd.DataF
 
 def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optional[list]) -> None:
     sns.set_theme(style="ticks", context="poster", rc={"axes.spines.right": False, "axes.spines.top": False})
-    plt.style.use("dark_background")
     sns.set_palette("muted")
 
     configure_logging(os.path.join(save_dir, 'plut_fuel.log'))
@@ -292,6 +291,11 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
     logger.info(personal_co2)
     logger.info(f'total: {personal_co2["co2"].sum()} kg of CO2 equivalent')
 
+    logger.info('Median price per volume for E10: '
+                f'{fuel_records_df[fuel_records_df["type"].eq("E10")]["volumecost"].median()}€/L')
+    logger.info('Median price per volume for GNC: '
+                f'{fuel_records_df[fuel_records_df["type"].isin(["GNC", "BioGNC"])]["volumecost"].median()}€/kg')
+
     fuel_efficiencies = get_fuel_efficiencies(fuel_records_df)
     logger.info('Fuel efficiency:')
     logger.info(fuel_efficiencies)
@@ -307,7 +311,7 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
     if save_dir is not None:
         os.makedirs(save_dir, exist_ok=True)
         fig_driven_km.savefig(os.path.join(save_dir, 'driven_km.png'), bbox_inches='tight')
-        fig_fuel_efficiencies.savefig(os.path.join(save_dir, 'fuel_efficiencies.png'), bbox_inches='tight')
+        fig_fuel_efficiencies.savefig(os.path.join(save_dir, 'fuel_efficiencies.png'), bbox_inches='tight', dpi=150)
     else:
         plt.show()
     plt.close(fig_driven_km)
