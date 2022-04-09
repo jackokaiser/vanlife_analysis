@@ -9,8 +9,9 @@ import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
 import seaborn as sns
+import logging
 
-from vanlife_analysis.utils import load_fuel_records, get_figsize, parse_date_interval
+from vanlife_analysis.utils import load_fuel_records, get_figsize, parse_date_interval, configure_logging, get_logger
 
 
 def is_full_refill(record: pd.Series) -> bool:
@@ -198,16 +199,19 @@ def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> list:
 
 def filter_fuel_efficiencies_outliers(fuel_efficiencies: list, gnc_km_per_unit_upper_thresh: float = 16,
                                       e10_km_per_unit_lower_thresh: float = 4.5) -> list:
+    logger = get_logger()
     filtered_fuel_efficiencies = []
     for fuel_efficiency in fuel_efficiencies:
         if (fuel_efficiency.type == 'GNC' or fuel_efficiency.type == 'BioGNC') and \
            (fuel_efficiency.km_per_unit() > gnc_km_per_unit_upper_thresh):
-            print(f'Dropping {fuel_efficiency}: {fuel_efficiency.km_per_unit()}km/kg > {gnc_km_per_unit_upper_thresh}km/kg'
-                  ' (did you forget to record a tank switch?)')
+            logger.info(f'Dropping {fuel_efficiency}: '
+                        f'{fuel_efficiency.km_per_unit()}km/kg > {gnc_km_per_unit_upper_thresh}km/kg '
+                        '(did you forget to record a tank switch?)')
             continue
         elif (fuel_efficiency.type == 'E10') and fuel_efficiency.km_per_unit() < e10_km_per_unit_lower_thresh:
-            print(f'Dropping {fuel_efficiency}: {fuel_efficiency.km_per_unit()}km/L < {e10_km_per_unit_lower_thresh}km/L'
-                  ' (did you forget to record a tank switch?)')
+            logger.info(f'Dropping {fuel_efficiency}: '
+                        f'{fuel_efficiency.km_per_unit()}km/L < {e10_km_per_unit_lower_thresh}km/L '
+                        '(did you forget to record a tank switch?)')
             continue
         filtered_fuel_efficiencies.append(fuel_efficiency)
     return filtered_fuel_efficiencies
@@ -222,6 +226,7 @@ def get_fuel_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def draw_fuel_efficiencies(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
+    logger = get_logger()
     sns.set_context('poster')
     fig, ax = plt.subplots(1, 1, figsize=get_figsize())
     avg_fuel_efficiencies['euro_per_km'].plot(kind='bar', ax=ax)
@@ -229,7 +234,7 @@ def draw_fuel_efficiencies(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
     ax.set_xlabel('Fuel type')
     annotate_euros(ax)
     E10_km_per_unit = avg_fuel_efficiencies[avg_fuel_efficiencies.index.str.match("E10")]['km_per_unit'][0]
-    print(f'E10 fuel consumption: {1 / E10_km_per_unit * 100:.1f} L/100km')
+    logger.info(f'E10 fuel consumption: {1 / E10_km_per_unit * 100:.1f} L/100km')
     return fig
 
 
@@ -260,20 +265,15 @@ def draw_driven_km(driven_freq_df: pd.DataFrame, avg_fuel_efficiencies: pd.DataF
     return fig
 
 
-def print_hline():
-    print('\n')
-    print('='*15)
-    print('\n')
-
-
 def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optional[list]) -> None:
     sns.set_theme(style="ticks", context="poster", rc={"axes.spines.right": False, "axes.spines.top": False})
     plt.style.use("dark_background")
     sns.set_palette("muted")
 
-    fuel_records_df = load_fuel_records(path_to_fuel)
+    configure_logging(os.path.join(save_dir, 'plut_fuel.log'))
+    logger = get_logger()
 
-    print_hline()
+    fuel_records_df = load_fuel_records(path_to_fuel)
 
     if date_interval is not None:
         start_date, end_date = parse_date_interval(date_interval)
@@ -286,20 +286,17 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
     n_days = (end_date - start_date).days
 
     personal_co2 = compute_personal_co2(fuel_records_df, n_days)
-    print(f'kg of CO2 emitted for {n_days} days (from {start_date.date()} to {end_date.date()}):')
-    print(personal_co2)
-    print(f'total: {personal_co2["co2"].sum()} kg of CO2 equivalent')
-
-    print_hline()
+    logger.info(f'kg of CO2 emitted for {n_days} days (from {start_date.date()} to {end_date.date()}):')
+    logger.info(personal_co2)
+    logger.info(f'total: {personal_co2["co2"].sum()} kg of CO2 equivalent')
 
     fuel_efficiencies = get_fuel_efficiencies(fuel_records_df)
-    print('Fuel efficiency:')
-    print(fuel_efficiencies)
+    logger.info('Fuel efficiency:')
+    logger.info(fuel_efficiencies)
     avg_fuel_efficiencies = fuel_efficiencies.groupby(['type']).sum()
     avg_fuel_efficiencies['km_per_unit'] = avg_fuel_efficiencies['driven'] / avg_fuel_efficiencies['volume']
     avg_fuel_efficiencies['euro_per_km'] = avg_fuel_efficiencies['cost'] / avg_fuel_efficiencies['driven']
 
-    print_hline()
     driven_freq_df = get_driven_freq(fuel_records_df)
 
     fig_driven_km = draw_driven_km(driven_freq_df, avg_fuel_efficiencies)

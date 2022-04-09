@@ -2,9 +2,29 @@ from typing import Callable
 import tempfile
 import shutil
 import os
+from typing import Optional
 import pandas as pd
 import numpy as np
 from dateutil.parser import parse
+import logging
+
+
+def get_logger() -> logging.Logger:
+    return logging.getLogger(__name__)
+
+
+def configure_logging(log_path: Optional[str] = None):
+    logger = get_logger()
+    log_formatter = logging.Formatter("### [%(levelname)s][%(asctime)s] ###\n%(message)s", datefmt='%Y-%m-%dT%H:%M:%S')
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(log_formatter)
+    logger.addHandler(stream_handler)
+    if log_path is not None:
+        file_handler = logging.FileHandler(log_path, mode='w')
+        file_handler.setFormatter(log_formatter)
+        logger.addHandler(file_handler)
+    logger.setLevel(logging.DEBUG)
 
 
 def get_figsize(fig_height: float = 10.0) -> tuple([float, float]):
