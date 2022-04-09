@@ -2,12 +2,11 @@ import glob
 import os
 from tqdm import tqdm
 import argparse
-from typing import Optional
+from typing import Optional, Callable
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.dates import DateFormatter
-from scipy import stats
+from matplotlib.axes import Axes
 import seaborn as sns
 
 from vanlife_analysis.utils import uncompress_and_load, get_figsize
@@ -42,35 +41,52 @@ def data_loader(weather_dir: str):
     return pd.concat(dfs).sort_index()
 
 
+def draw_temperature(ax: Axes, day_df: pd.DataFrame):
+    day_df[['temp_ext', 'temp_room', 'temp_wall', 'temp_ceiling']].plot(ax=ax).legend(loc='upper left')
+    ax.set_ylabel('Temperature [°C]')
+    ax.set_xlabel('Time [hh:mm]')
+
+
+def draw_humidity(ax: Axes, day_df: pd.DataFrame):
+    day_df[['hum_ext', 'hum_room', 'hum_wall', 'hum_ceiling']].plot(ax=ax).legend(loc='upper left')
+    ax.set_ylabel('Humidity [%]')
+    ax.set_xlabel('Time [hh:mm]')
+
+
+def draw_co2(ax: Axes, day_df: pd.DataFrame):
+    day_df[['co2', 'tvoc']].plot(ax=ax).legend(loc='upper left')
+    ax.set_ylabel('Concentration [ppm]')
+    ax.set_xlabel('Time [hh:mm]')
+
+
+def plot_and_save_fig(drawer: Callable, name: str, day_df: pd.DataFrame, day: pd.Timestamp,
+                      save_dir: Optional[str] = None):
+    fig, ax = plt.subplots(1, 1, figsize=(8, 3))
+    drawer(ax, day_df)
+    fig.tight_layout()
+    date = day.strftime("%Y-%m-%d")
+    ax.set_title(f'{name} on day {date}', pad=-40)
+    if save_dir is not None:
+        fig.savefig(os.path.join(save_dir, f'{date}_{name}.png'), dpi=150)
+    else:
+        plt.show()
+    plt.close(fig)
+
+
 def plot_weather(weather_dir: str, save_dir: Optional[str]):
-    sns.set_theme()
+    sns.set_theme(style="ticks", context="paper", rc={"axes.spines.right": False, "axes.spines.top": False})
+    sns.set_palette("muted")
+
     df = uncompress_and_load(weather_dir, data_loader)
     df = df.dropna()
     df = average(df, n_secs=120)
-
     if save_dir is not None:
         os.makedirs(save_dir, exist_ok=True)
 
     for day, day_df in tqdm(df.groupby(pd.Grouper(level='time', freq='D')), desc='Plotting days'):
-        fig, axs = plt.subplots(3, 1, sharex=True, figsize=get_figsize())
-        fig.suptitle(f'Day {day.date()}', fontsize=16)
-
-        legend_loc = {'loc': 'center left', 'bbox_to_anchor': (1.0, 0.5)}
-        ax_co2, ax_temp, ax_hum = axs
-        day_df[['co2', 'tvoc']].plot(ax=ax_co2).legend(**legend_loc)
-        day_df[['temp_ext', 'temp_room', 'temp_wall', 'temp_ceiling']].plot(ax=ax_temp).legend(**legend_loc)
-        day_df[['hum_ext', 'hum_room', 'hum_wall', 'hum_ceiling']].plot(ax=ax_hum).legend(**legend_loc)
-        ax_co2.set_ylabel('Concentration [ppm]')
-        ax_temp.set_ylabel('Temperature [°C]')
-        ax_hum.set_ylabel('Humidity [%]')
-        ax_hum.set_xlabel('Time [hh:mm]')
-
-        if save_dir is not None:
-            filename = f'{day.strftime("%Y-%m-%d")}.png'
-            fig.savefig(os.path.join(save_dir, filename))
-        else:
-            plt.show()
-        plt.close(fig)
+        plot_and_save_fig(draw_temperature, 'temperature', day_df, day, save_dir)
+        plot_and_save_fig(draw_humidity, 'humidity', day_df, day, save_dir)
+        plot_and_save_fig(draw_co2, 'co2', day_df, day, save_dir)
 
 
 def parse_args() -> argparse.Namespace:
