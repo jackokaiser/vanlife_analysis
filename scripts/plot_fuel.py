@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
 import seaborn as sns
-import logging
 
 from vanlife_analysis.utils import load_fuel_records, get_figsize, parse_date_interval, configure_logging, get_logger
 
@@ -284,9 +283,12 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
         end_date = fuel_records_df.iloc[-1]['date']
 
     n_days = (end_date - start_date).days
+    total_kms = fuel_records_df.iloc[-1]['mileage'] - fuel_records_df.iloc[0]['mileage']
+    logger.info(f'plotting fuel consumption from {start_date.date()} to {end_date.date()}')
+    logger.info(f'drove {total_kms}km in {n_days} days (average {total_kms/n_days:.0f}km/day)')
 
     personal_co2 = compute_personal_co2(fuel_records_df, n_days)
-    logger.info(f'kg of CO2 emitted for {n_days} days (from {start_date.date()} to {end_date.date()}):')
+    logger.info(f'kg of CO2 emitted:')
     logger.info(personal_co2)
     logger.info(f'total: {personal_co2["co2"].sum()} kg of CO2 equivalent')
 
