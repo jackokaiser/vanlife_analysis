@@ -51,12 +51,14 @@ def draw_humidity(ax: Axes, day_df: pd.DataFrame):
     day_df[['hum_ext', 'hum_room', 'hum_wall', 'hum_ceiling']].plot(ax=ax).legend(loc='upper left')
     ax.set_ylabel('Humidity [%]')
     ax.set_xlabel('Time [hh:mm]')
+    ax.set_ylim([0, 100])
 
 
 def draw_co2(ax: Axes, day_df: pd.DataFrame):
     day_df[['co2', 'tvoc']].plot(ax=ax).legend(loc='upper left')
     ax.set_ylabel('Concentration [ppm]')
     ax.set_xlabel('Time [hh:mm]')
+    ax.set_ylim([0, 8000])
 
 
 def plot_and_save_fig(drawer: Callable, name: str, day_df: pd.DataFrame, day: pd.Timestamp,
