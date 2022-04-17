@@ -232,8 +232,9 @@ def draw_fuel_efficiencies(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
     ax.set_ylabel('Price [€/km]')
     ax.set_xlabel('Fuel type')
     annotate_euros(ax)
-    E10_km_per_unit = avg_fuel_efficiencies[avg_fuel_efficiencies.index.str.match("E10")]['km_per_unit'][0]
-    logger.info(f'E10 fuel consumption: {1 / E10_km_per_unit * 100:.1f} L/100km')
+    E10_unit_per_km = avg_fuel_efficiencies[avg_fuel_efficiencies.type.str.match("E10")]['unit_per_km']
+    logger.info(f'E10 fuel consumption: {E10_unit_per_km["mean"].item() * 100:.1f} L/100km '
+                f'(+/-{E10_unit_per_km["std"].item() * 100:.1f})')
     return fig
 
 
@@ -253,7 +254,7 @@ def draw_driven_km(driven_freq_df: pd.DataFrame, avg_fuel_efficiencies: pd.DataF
     column_names = driven_freq_df['volume'].columns.categories.tolist()
     real_driven_kms = driven_freq_df['driven'].sum(axis=1)
     # stacked bar plot: each fuel bar is normalized by volume * km_per_unit
-    tanked_kms = driven_freq_df['volume'] * avg_fuel_efficiencies['km_per_unit']
+    tanked_kms = driven_freq_df['volume'] * avg_fuel_efficiencies['km_per_unit']['mean']
     normalized_driven_kms = tanked_kms.div(tanked_kms.sum(axis=1), axis=0).mul(real_driven_kms, axis=0)
     normalized_driven_kms = normalized_driven_kms[column_names]
 
@@ -268,7 +269,8 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
     sns.set_theme(style="ticks", context="poster", rc={"axes.spines.right": False, "axes.spines.top": False})
     sns.set_palette("muted")
 
-    configure_logging(os.path.join(save_dir, 'plut_fuel.log'))
+    log_path = os.path.join(save_dir, 'plut_fuel.log') if save_dir is not None else None
+    configure_logging(log_path)
     logger = get_logger()
 
     fuel_records_df = load_fuel_records(path_to_fuel)
@@ -299,14 +301,22 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
     fuel_efficiencies = get_fuel_efficiencies(fuel_records_df)
     logger.info('Fuel efficiency:')
     logger.info(fuel_efficiencies)
-    avg_fuel_efficiencies = fuel_efficiencies.groupby(['type']).sum()
-    avg_fuel_efficiencies['km_per_unit'] = avg_fuel_efficiencies['driven'] / avg_fuel_efficiencies['volume']
-    avg_fuel_efficiencies['euro_per_km'] = avg_fuel_efficiencies['cost'] / avg_fuel_efficiencies['driven']
+    fuel_efficiencies['km_per_unit'] = fuel_efficiencies['driven'] / fuel_efficiencies['volume']
+    fuel_efficiencies['unit_per_km'] = fuel_efficiencies['volume'] / fuel_efficiencies['driven']
+    fuel_efficiencies['euro_per_km'] = fuel_efficiencies['cost'] / fuel_efficiencies['driven']
+
+    avg_fuel_efficiencies = fuel_efficiencies.groupby(['type'], as_index=False).agg({
+        'km_per_unit': ['mean', 'std'],
+        'unit_per_km': ['mean', 'std'],
+        'euro_per_km': ['mean', 'std'],
+        'driven': 'sum',
+        'volume': 'sum',
+        'cost': 'sum'
+    })
+    fig_fuel_efficiencies = draw_fuel_efficiencies(avg_fuel_efficiencies)
 
     driven_freq_df = get_driven_freq(fuel_records_df)
-
     fig_driven_km = draw_driven_km(driven_freq_df, avg_fuel_efficiencies)
-    fig_fuel_efficiencies = draw_fuel_efficiencies(avg_fuel_efficiencies)
 
     if save_dir is not None:
         os.makedirs(save_dir, exist_ok=True)
