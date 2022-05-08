@@ -9,8 +9,11 @@ import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
 import seaborn as sns
+import logging
 
-from vanlife_analysis.utils import load_fuel_records, get_figsize, parse_date_interval, configure_logging, get_logger
+from vanlife_analysis.utils import load_fuel_records, get_figsize, parse_date_interval, configure_logger
+
+logger = logging.getLogger(__name__)
 
 
 def is_full_refill(record: pd.Series) -> bool:
@@ -198,7 +201,6 @@ def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> list:
 
 def filter_fuel_efficiencies_outliers(fuel_efficiencies: list, gnc_km_per_unit_upper_thresh: float = 16,
                                       e10_km_per_unit_lower_thresh: float = 4.5) -> list:
-    logger = get_logger()
     filtered_fuel_efficiencies = []
     for fuel_efficiency in fuel_efficiencies:
         if (fuel_efficiency.type == 'GNC' or fuel_efficiency.type == 'BioGNC') and \
@@ -225,14 +227,13 @@ def get_fuel_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def draw_fuel_efficiencies(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
-    logger = get_logger()
     sns.set_context('poster')
     fig, ax = plt.subplots(1, 1, figsize=get_figsize())
     avg_fuel_efficiencies['euro_per_km'].plot(kind='bar', ax=ax)
     ax.set_ylabel('Price [€/km]')
     ax.set_xlabel('Fuel type')
     annotate_euros(ax)
-    E10_unit_per_km = avg_fuel_efficiencies[avg_fuel_efficiencies.type.str.match("E10")]['unit_per_km']
+    E10_unit_per_km = avg_fuel_efficiencies[avg_fuel_efficiencies.index.str.match("E10")]['unit_per_km']
     logger.info(f'E10 fuel consumption: {E10_unit_per_km["mean"].item() * 100:.1f} L/100km '
                 f'(+/-{E10_unit_per_km["std"].item() * 100:.1f})')
     return fig
@@ -240,7 +241,9 @@ def draw_fuel_efficiencies(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
 
 def draw_driven_km(driven_freq_df: pd.DataFrame, avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
     sns.set_context('talk')
-    fig, ax = plt.subplots(1, 1, figsize=get_figsize())
+    base_fig_width, fig_height = get_figsize()
+    n_days = (driven_freq_df.index[-1] - driven_freq_df.index[0]).days
+    fig, ax = plt.subplots(1, 1, figsize=(base_fig_width * n_days / 365 * 2., fig_height))
 
     def line_format(date):
         """
@@ -270,8 +273,7 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
     sns.set_palette("muted")
 
     log_path = os.path.join(save_dir, 'plut_fuel.log') if save_dir is not None else None
-    configure_logging(log_path)
-    logger = get_logger()
+    configure_logger(logger)
 
     fuel_records_df = load_fuel_records(path_to_fuel)
 
@@ -305,7 +307,7 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
     fuel_efficiencies['unit_per_km'] = fuel_efficiencies['volume'] / fuel_efficiencies['driven']
     fuel_efficiencies['euro_per_km'] = fuel_efficiencies['cost'] / fuel_efficiencies['driven']
 
-    avg_fuel_efficiencies = fuel_efficiencies.groupby(['type'], as_index=False).agg({
+    avg_fuel_efficiencies = fuel_efficiencies.groupby(['type'], as_index=True).agg({
         'km_per_unit': ['mean', 'std'],
         'unit_per_km': ['mean', 'std'],
         'euro_per_km': ['mean', 'std'],
