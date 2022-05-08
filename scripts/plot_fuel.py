@@ -118,12 +118,6 @@ class FuelEfficiency:
     cost: float
     type: str
 
-    def km_per_unit(self) -> float:
-        return self.driven / self.volume
-
-    def unit_per_km(self) -> float:
-        return 1.0 / self.km_per_unit
-
 
 def get_gnc_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
     first_tank_switch_idx = fuel_records_df.index[fuel_records_df.apply(is_tank_switch, axis=1)][0]
