@@ -3,12 +3,13 @@ import os
 from typing import Optional
 import pandas as pd
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from collections import namedtuple
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
 import seaborn as sns
+import datetime
 import logging
 
 from vanlife_analysis.utils import load_fuel_records, get_figsize, parse_date_interval, configure_logger
@@ -104,6 +105,8 @@ def get_driven_freq(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFr
 
 @dataclass
 class FuelEfficiency:
+    start_date: datetime.datetime
+    end_date: datetime.datetime
     driven: int
     volume: float
     cost: float
@@ -116,7 +119,7 @@ class FuelEfficiency:
         return 1.0 / self.km_per_unit
 
 
-def get_gnc_efficiencies(fuel_records_df: pd.DataFrame) -> list:
+def get_gnc_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
     first_tank_switch_idx = fuel_records_df.index[fuel_records_df.apply(is_tank_switch, axis=1)][0]
     # remove indexes before first tank switch (with start with an empty gnc tank)
     drop_mask = (fuel_records_df.index < first_tank_switch_idx + 1)
@@ -127,6 +130,8 @@ def get_gnc_efficiencies(fuel_records_df: pd.DataFrame) -> list:
 
     fuel_efficiencies = []
 
+    current_start_date = None
+    current_end_date = None
     current_driven = 0
     current_volume = 0
     current_cost = 0
@@ -138,14 +143,20 @@ def get_gnc_efficiencies(fuel_records_df: pd.DataFrame) -> list:
 
         if is_gnc_refill(record):
             if current_type is None:
+                assert current_start_date is None and (current_driven, current_volume, current_cost) == (0, 0, 0)
+                current_start_date = record.date
                 current_type = record.type
             assert current_type == record.type, f'Unsupported GNC mix {current_type} and {record.type}'
             current_volume += record.volume
             current_cost += record.cost
         elif is_tank_switch(record):
             assert current_type is not None, 'Subsequent tank switch'
-            fuel_efficiency = FuelEfficiency(current_driven, current_volume, current_cost, current_type)
+            current_end_date = record.date
+            fuel_efficiency = FuelEfficiency(current_start_date, current_end_date,
+                                             current_driven, current_volume, current_cost, current_type)
             fuel_efficiencies.append(fuel_efficiency)
+            current_start_date = None
+            current_end_date = None
             current_driven = 0
             current_volume = 0
             current_cost = 0
@@ -153,10 +164,10 @@ def get_gnc_efficiencies(fuel_records_df: pd.DataFrame) -> list:
         else:
             raise RuntimeError(f'Unexpected record: {record}')
 
-    return fuel_efficiencies
+    return pd.DataFrame.from_records([asdict(fuel_efficiency) for fuel_efficiency in fuel_efficiencies])
 
 
-def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> list:
+def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
     first_tank_switch_idx = fuel_records_df.index[fuel_records_df.apply(is_tank_switch, axis=1)][0]
     drop_mask = (fuel_records_df.index < first_tank_switch_idx + 1)
     fuel_records_df_cropped = fuel_records_df.drop(fuel_records_df.index[drop_mask])
@@ -167,6 +178,7 @@ def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> list:
     fuel_records_it = fuel_records_df_cropped.iterrows()
     for _, record in fuel_records_it:
         if is_e10_refill(record) and is_full_refill(record):
+            # tank is full of E10, and we are currently driving on fuel of type current_type
             break
         elif is_gnc_refill(record):
             current_type = record.type
@@ -175,6 +187,8 @@ def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> list:
 
     # continue the iteration, starting with full tank of E10
     fuel_efficiencies = []
+    current_start_date = None
+    current_end_date = None
     current_driven = 0
     current_volume = 0
     current_cost = 0
@@ -187,43 +201,59 @@ def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> list:
             current_volume += record.volume
             current_cost += record.cost
             if is_full_refill(record):
-                fuel_efficiencies.append(FuelEfficiency(current_driven, current_volume, current_cost, 'E10'))
+                assert current_start_date is not None
+                current_end_date = record.date if current_end_date is None else current_end_date
+                fuel_efficiency = FuelEfficiency(current_start_date, current_end_date,
+                                                 current_driven, current_volume, current_cost, 'E10')
+                fuel_efficiencies.append(fuel_efficiency)
+                current_start_date = record.date if current_type == 'E10' else None
+                current_end_date = None
                 current_volume = 0
                 current_cost = 0
                 current_driven = 0
         elif is_gnc_refill(record):
             current_type = record.type
+            current_end_date = record.date
         elif is_tank_switch(record):
             current_type = 'E10'
+            current_start_date = record.date if current_start_date is None else current_start_date
 
-    return fuel_efficiencies
+    return pd.DataFrame.from_records([asdict(fuel_efficiency) for fuel_efficiency in fuel_efficiencies])
 
 
-def filter_fuel_efficiencies_outliers(fuel_efficiencies: list, gnc_km_per_unit_upper_thresh: float = 16,
-                                      e10_km_per_unit_lower_thresh: float = 4.5) -> list:
-    filtered_fuel_efficiencies = []
-    for fuel_efficiency in fuel_efficiencies:
-        if (fuel_efficiency.type == 'GNC' or fuel_efficiency.type == 'BioGNC') and \
-           (fuel_efficiency.km_per_unit() > gnc_km_per_unit_upper_thresh):
-            logger.info(f'Dropping {fuel_efficiency}: '
-                        f'{fuel_efficiency.km_per_unit()}km/kg > {gnc_km_per_unit_upper_thresh}km/kg '
-                        '(did you forget to record a tank switch?)')
-            continue
-        elif (fuel_efficiency.type == 'E10') and fuel_efficiency.km_per_unit() < e10_km_per_unit_lower_thresh:
-            logger.info(f'Dropping {fuel_efficiency}: '
-                        f'{fuel_efficiency.km_per_unit()}km/L < {e10_km_per_unit_lower_thresh}km/L '
-                        '(did you forget to record a tank switch?)')
-            continue
-        filtered_fuel_efficiencies.append(fuel_efficiency)
-    return filtered_fuel_efficiencies
+def get_gnc_outliers(fuel_efficiencies_df: pd.DataFrame, gnc_km_per_unit_upper_thresh: float = 16) -> pd.DataFrame:
+    outliers_mask = fuel_efficiencies_df.type.isin(["GNC", "BioGNC"]) & \
+        (fuel_efficiencies_df['km_per_unit'] > gnc_km_per_unit_upper_thresh)
+
+    outliers_records = fuel_efficiencies_df[outliers_mask]
+    if len(outliers_records) > 0:
+        logger.info(f'Found {len(outliers_records)} outliers in GNC records:\n{outliers_records}')
+    return outliers_records
+
+
+def get_e10_outliers(fuel_efficiencies_df: pd.DataFrame, e10_km_per_unit_lower_thresh: float = 4.5) -> pd.DataFrame:
+    outliers_mask = fuel_efficiencies_df.type.eq("E10") & \
+        (fuel_efficiencies_df['km_per_unit'] < e10_km_per_unit_lower_thresh)
+    outliers_records = fuel_efficiencies_df[outliers_mask]
+    if len(outliers_records) > 0:
+        logger.info(f'Found {len(outliers_records)} outliers in E10 records:\n{outliers_records}')
+    return outliers_records
+
+
+def filter_fuel_efficiencies_outliers(fuel_efficiencies_df: pd.DataFrame) -> pd.DataFrame:
+    gnc_outliers = get_gnc_outliers(fuel_efficiencies_df)
+    e10_outliers = get_e10_outliers(fuel_efficiencies_df)
+    return fuel_efficiencies_df.drop(pd.Index.union(gnc_outliers.index, e10_outliers.index))
 
 
 def get_fuel_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
-    fuel_efficiencies = get_gnc_efficiencies(fuel_records_df) + get_e10_efficiencies(fuel_records_df)
+    gnc_fuel_efficiencies = get_gnc_efficiencies(fuel_records_df)
+    e10_fuel_efficiencies = get_e10_efficiencies(fuel_records_df)
+    fuel_efficiencies = pd.concat([gnc_fuel_efficiencies, e10_fuel_efficiencies], ignore_index=True)
+    fuel_efficiencies['km_per_unit'] = fuel_efficiencies['driven'] / fuel_efficiencies['volume']
+    fuel_efficiencies['unit_per_km'] = 1 / fuel_efficiencies['km_per_unit']
     fuel_efficiencies = filter_fuel_efficiencies_outliers(fuel_efficiencies)
-
-    fuel_efficiencies_df = pd.DataFrame(fuel_efficiencies)
-    return fuel_efficiencies_df
+    return fuel_efficiencies
 
 
 def draw_fuel_efficiencies(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
