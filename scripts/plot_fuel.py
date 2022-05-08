@@ -80,8 +80,17 @@ def annotate_kms(ax: Axes, xx: np.ndarray, yy: np.ndarray) -> None:
         ax.annotate(f'{int(height)} km', (x, height), ha='center', va='bottom')
 
 
-def fuel_unit(fuel: str) -> str:
-    return 'L' if fuel == 'E10' else 'kg'
+def annotate_kms_volumes(ax: Axes, fuel_efficiencies_per_month: pd.DataFrame) -> None:
+    for xx, (_, driven_row), (_, volume_row) in zip(ax.get_xticks(),
+                                                    fuel_efficiencies_per_month['driven'].iterrows(),
+                                                    fuel_efficiencies_per_month['volume'].iterrows()):
+        total_kms = driven_row.values.sum()
+        ax.annotate(f'{int(total_kms)} km', (xx, total_kms), ha='center', va='bottom')
+
+        vertical_centers = driven_row.values.cumsum() - driven_row.values / 2.
+        for fuel, vertical_center, volume in zip(volume_row.index, vertical_centers, volume_row.values):
+            if volume > 5:
+                ax.annotate(f'{int(volume)}{fuel_unit(fuel)}', (xx, vertical_center), ha='center', va='center')
 
 
 def annotate_volumes(ax: Axes, xx: np.ndarray, bar_heights: np.ndarray,
@@ -94,6 +103,10 @@ def annotate_volumes(ax: Axes, xx: np.ndarray, bar_heights: np.ndarray,
         for y, fuel, value in zip(yy, fuels, values):
             if not value < too_little_volume:
                 ax.annotate(f'{int(value)}{fuel_unit(fuel)}', (x, y), ha='center', va='center')
+
+
+def fuel_unit(fuel: str) -> str:
+    return 'L' if fuel == 'E10' else 'kg'
 
 
 def get_driven_freq(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFrame:
@@ -137,7 +150,7 @@ def get_gnc_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
     current_cost = 0
     current_type = None
 
-    for _, record in gnc_refuels_and_switches.iterrows():
+    for record in gnc_refuels_and_switches.itertuples():
         if current_type is not None:
             current_driven += record.driven
 
@@ -251,12 +264,23 @@ def get_fuel_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
     e10_fuel_efficiencies = get_e10_efficiencies(fuel_records_df)
     fuel_efficiencies = pd.concat([gnc_fuel_efficiencies, e10_fuel_efficiencies], ignore_index=True)
     fuel_efficiencies['km_per_unit'] = fuel_efficiencies['driven'] / fuel_efficiencies['volume']
-    fuel_efficiencies['unit_per_km'] = 1 / fuel_efficiencies['km_per_unit']
+    fuel_efficiencies['unit_per_km'] = fuel_efficiencies['volume'] / fuel_efficiencies['driven']
+    fuel_efficiencies['euro_per_km'] = fuel_efficiencies['cost'] / fuel_efficiencies['driven']
+    fuel_efficiencies['n_days'] = fuel_efficiencies['end_date'] - fuel_efficiencies['start_date']
     fuel_efficiencies = filter_fuel_efficiencies_outliers(fuel_efficiencies)
     return fuel_efficiencies
 
 
-def draw_fuel_efficiencies(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
+def draw_fuel_efficiencies(fuel_efficiencies: pd.DataFrame) -> plt.Figure:
+    avg_fuel_efficiencies = fuel_efficiencies.groupby(['type'], as_index=True).agg({
+        'km_per_unit': ['mean', 'std'],
+        'unit_per_km': ['mean', 'std'],
+        'euro_per_km': ['mean', 'std'],
+        'driven': 'sum',
+        'volume': 'sum',
+        'cost': 'sum'
+    })
+
     sns.set_context('poster')
     fig, ax = plt.subplots(1, 1, figsize=get_figsize())
     avg_fuel_efficiencies['euro_per_km'].plot(kind='bar', ax=ax)
@@ -269,11 +293,26 @@ def draw_fuel_efficiencies(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
     return fig
 
 
-def draw_driven_km(driven_freq_df: pd.DataFrame, avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
+def get_fuel_efficiencies_per_month(fuel_efficiencies: pd.DataFrame) -> pd.DataFrame:
+    columns = ['date', 'type', 'volume', 'driven']
+    records = []
+    for row in fuel_efficiencies.itertuples():
+        driven_per_day = row.driven / row.n_days.days
+        volume_per_day = row.volume / row.n_days.days
+        for date in pd.date_range(row.start_date, row.end_date, freq='1D', closed='left'):
+            records.append([date, row.type, volume_per_day, driven_per_day])
+
+    fuel_efficiencies_per_day = pd.DataFrame.from_records(records, columns=columns)
+    fuel_efficiencies_per_month = fuel_efficiencies_per_day.groupby([pd.Grouper(key='date', freq='M'), 'type']).sum()
+    return fuel_efficiencies_per_month.unstack().fillna(0)
+
+
+def draw_driven_km(fuel_efficiencies: pd.DataFrame) -> plt.Figure:
     sns.set_context('talk')
-    base_fig_width, fig_height = get_figsize()
-    n_days = (driven_freq_df.index[-1] - driven_freq_df.index[0]).days
-    fig, ax = plt.subplots(1, 1, figsize=(base_fig_width * n_days / 365 * 2., fig_height))
+    fig_width, fig_height = get_figsize()
+    fig, ax = plt.subplots(1, 1, figsize=(fig_width * 2., fig_height))
+
+    fuel_efficiencies_per_month = get_fuel_efficiencies_per_month(fuel_efficiencies)
 
     def line_format(date):
         """
@@ -284,17 +323,9 @@ def draw_driven_km(driven_freq_df: pd.DataFrame, avg_fuel_efficiencies: pd.DataF
             month += f'\n{date.year}'
         return month
 
-    column_names = driven_freq_df['volume'].columns.categories.tolist()
-    real_driven_kms = driven_freq_df['driven'].sum(axis=1)
-    # stacked bar plot: each fuel bar is normalized by volume * km_per_unit
-    tanked_kms = driven_freq_df['volume'] * avg_fuel_efficiencies['km_per_unit']['mean']
-    normalized_driven_kms = tanked_kms.div(tanked_kms.sum(axis=1), axis=0).mul(real_driven_kms, axis=0)
-    normalized_driven_kms = normalized_driven_kms[column_names]
-
-    normalized_driven_kms.plot(ax=ax, kind='bar', ylabel='km', stacked=True)
-    ax.set_xticklabels([line_format(index) for index in driven_freq_df.index])
-    annotate_kms(ax, ax.get_xticks(), real_driven_kms.values)
-    annotate_volumes(ax, ax.get_xticks(), normalized_driven_kms.values, driven_freq_df['volume'].values, column_names)
+    fuel_efficiencies_per_month['driven'].plot(ax=ax, kind='bar', ylabel='km', stacked=True)
+    ax.set_xticklabels([line_format(index) for index in fuel_efficiencies_per_month.index])
+    annotate_kms_volumes(ax, fuel_efficiencies_per_month)
     return fig
 
 
@@ -333,22 +364,9 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
     fuel_efficiencies = get_fuel_efficiencies(fuel_records_df)
     logger.info('Fuel efficiency:')
     logger.info(fuel_efficiencies)
-    fuel_efficiencies['km_per_unit'] = fuel_efficiencies['driven'] / fuel_efficiencies['volume']
-    fuel_efficiencies['unit_per_km'] = fuel_efficiencies['volume'] / fuel_efficiencies['driven']
-    fuel_efficiencies['euro_per_km'] = fuel_efficiencies['cost'] / fuel_efficiencies['driven']
 
-    avg_fuel_efficiencies = fuel_efficiencies.groupby(['type'], as_index=True).agg({
-        'km_per_unit': ['mean', 'std'],
-        'unit_per_km': ['mean', 'std'],
-        'euro_per_km': ['mean', 'std'],
-        'driven': 'sum',
-        'volume': 'sum',
-        'cost': 'sum'
-    })
-    fig_fuel_efficiencies = draw_fuel_efficiencies(avg_fuel_efficiencies)
-
-    driven_freq_df = get_driven_freq(fuel_records_df)
-    fig_driven_km = draw_driven_km(driven_freq_df, avg_fuel_efficiencies)
+    fig_fuel_efficiencies = draw_fuel_efficiencies(fuel_efficiencies)
+    fig_driven_km = draw_driven_km(fuel_efficiencies)
 
     if save_dir is not None:
         os.makedirs(save_dir, exist_ok=True)
