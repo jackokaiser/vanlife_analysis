@@ -70,8 +70,13 @@ def annotate_euros(ax: Axes) -> None:
     for rectangle in ax.patches:
         height = rectangle.get_height()
         x = rectangle.get_x() + rectangle.get_width() / 2.0
-        y = rectangle.get_y() + height
-        ax.annotate(f'{height:.2f} €', (x, height), ha='center', va='bottom')
+        ax.annotate(f'{height:.2f} €', (x, 0), ha='center', va='bottom')
+
+
+def annotate_consumptions(ax: Axes, consumption_series: pd.Series) -> None:
+    x_ticks = ax.get_xticks()
+    for x_tick, (fuel, consumption) in zip(x_ticks, consumption_series.iteritems()):
+        ax.annotate(f'{consumption:.1f}{fuel_unit(fuel)}', (x_tick, 0), ha='center', va='bottom')
 
 
 def annotate_kms(ax: Axes, driven_series: pd.Series) -> None:
@@ -250,22 +255,28 @@ def get_fuel_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
     return fuel_efficiencies
 
 
-def draw_fuel_efficiencies(fuel_efficiencies: pd.DataFrame) -> plt.Figure:
-    avg_fuel_efficiencies = fuel_efficiencies.groupby(['type'], as_index=True).agg({
-        'km_per_unit': ['mean', 'std'],
-        'unit_per_km': ['mean', 'std'],
-        'euro_per_km': ['mean', 'std'],
-        'driven': 'sum',
-        'volume': 'sum',
-        'cost': 'sum'
-    })
-
+def draw_fuel_price(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
     sns.set_context('poster')
     fig, ax = plt.subplots(1, 1, figsize=get_figsize())
-    avg_fuel_efficiencies['euro_per_km'].plot(kind='bar', ax=ax)
+    avg_fuel_efficiencies['euro_per_km']['mean'].plot(kind='bar', ax=ax,
+                                                      yerr=avg_fuel_efficiencies['euro_per_km']['std'],
+                                                      error_kw={'capthick': 3, 'capsize': 10})
     ax.set_ylabel('Price [€/km]')
     ax.set_xlabel('Fuel type')
     annotate_euros(ax)
+    return fig
+
+
+def draw_fuel_consumption(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
+    sns.set_context('poster')
+    fig, ax = plt.subplots(1, 1, figsize=get_figsize())
+    (avg_fuel_efficiencies['unit_per_km']['mean'] * 100).plot(kind='bar', ax=ax,
+                                                              yerr=avg_fuel_efficiencies['unit_per_km']['std'] * 100.,
+                                                              error_kw={'capthick': 3, 'capsize': 10})
+    ax.set_ylabel('Fuel consumption [kg or L/100km]')
+    ax.set_xlabel('Fuel type')
+    annotate_consumptions(ax, avg_fuel_efficiencies['unit_per_km']['mean'] * 100)
+
     E10_unit_per_km = avg_fuel_efficiencies[avg_fuel_efficiencies.index.str.match("E10")]['unit_per_km']
     logger.info(f'E10 fuel consumption: {E10_unit_per_km["mean"].item() * 100:.1f} L/100km '
                 f'(+/-{E10_unit_per_km["std"].item() * 100:.1f})')
@@ -374,7 +385,20 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
     logger.info('Fuel efficiency:')
     logger.info(fuel_efficiencies)
 
-    fig_fuel_efficiencies = draw_fuel_efficiencies(fuel_efficiencies)
+    avg_fuel_efficiencies = fuel_efficiencies.groupby(['type'], as_index=True).agg({
+        'km_per_unit': ['mean', 'std'],
+        'unit_per_km': ['mean', 'std'],
+        'euro_per_km': ['mean', 'std'],
+        'driven': 'sum',
+        'volume': 'sum',
+        'cost': 'sum'
+    })
+
+    logger.info('Average fuel efficiencies:')
+    logger.info(avg_fuel_efficiencies)
+
+    fig_fuel_consumption = draw_fuel_consumption(avg_fuel_efficiencies)
+    fig_fuel_price = draw_fuel_price(avg_fuel_efficiencies)
     fig_driven = draw_driven(fuel_records_df)
     fig_volume = draw_volumes(fuel_records_df)
     fig_driven_with_volumes = draw_driven_with_volumes(fuel_efficiencies)
@@ -384,10 +408,12 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
         fig_driven.savefig(os.path.join(save_dir, 'driven_km.png'), bbox_inches='tight')
         fig_volume.savefig(os.path.join(save_dir, 'tanked_volumes.png'), bbox_inches='tight')
         fig_driven_with_volumes.savefig(os.path.join(save_dir, 'driven_with_volumes.png'), bbox_inches='tight')
-        fig_fuel_efficiencies.savefig(os.path.join(save_dir, 'fuel_efficiencies.png'), bbox_inches='tight', dpi=150)
+        fig_fuel_price.savefig(os.path.join(save_dir, 'fuel_price.png'), bbox_inches='tight', dpi=150)
+        fig_fuel_consumption.savefig(os.path.join(save_dir, 'fuel_consumption.png'), bbox_inches='tight', dpi=150)
     else:
         plt.show()
-    [plt.close(fig) for fig in [fig_fuel_efficiencies, fig_driven, fig_volume, fig_driven_with_volumes]]
+    [plt.close(fig) for fig in [fig_driven, fig_volume, fig_driven_with_volumes,
+                                fig_fuel_price, fig_fuel_consumption]]
 
 
 def parse_args() -> argparse.Namespace:
