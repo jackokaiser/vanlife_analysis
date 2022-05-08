@@ -74,35 +74,24 @@ def annotate_euros(ax: Axes) -> None:
         ax.annotate(f'{height:.2f} €', (x, height), ha='center', va='bottom')
 
 
-def annotate_kms(ax: Axes, xx: np.ndarray, yy: np.ndarray) -> None:
-    assert len(xx) == len(yy)
-    for x, height in zip(xx, yy):
-        ax.annotate(f'{int(height)} km', (x, height), ha='center', va='bottom')
+def annotate_kms(ax: Axes, driven_series: pd.Series) -> None:
+    x_ticks = ax.get_xticks()
+    assert len(x_ticks) == len(driven_series)
+    for x_tick, driven_km in zip(x_ticks, driven_series):
+        ax.annotate(f'{int(driven_km)} km', (x_tick, driven_km), ha='center', va='bottom')
 
 
-def annotate_kms_volumes(ax: Axes, fuel_efficiencies_per_month: pd.DataFrame) -> None:
-    for xx, (_, driven_row), (_, volume_row) in zip(ax.get_xticks(),
-                                                    fuel_efficiencies_per_month['driven'].iterrows(),
-                                                    fuel_efficiencies_per_month['volume'].iterrows()):
-        total_kms = driven_row.values.sum()
-        ax.annotate(f'{int(total_kms)} km', (xx, total_kms), ha='center', va='bottom')
-
-        vertical_centers = driven_row.values.cumsum() - driven_row.values / 2.
-        for fuel, vertical_center, volume in zip(volume_row.index, vertical_centers, volume_row.values):
+def annotate_volumes(ax: Axes, volumes_series: pd.Series, height_series: Optional[pd.Series] = None) -> None:
+    x_ticks = ax.get_xticks()
+    if height_series is None:
+        height_series = volumes_series
+    for x_tick, (_, volumes), (_, heights) in zip(x_ticks,
+                                                  volumes_series.groupby(level=0),
+                                                  height_series.groupby(level=0)):
+        vertical_centers = heights.values.cumsum() - heights.values / 2.
+        for fuel, vertical_center, volume in zip(volumes.index, vertical_centers, volumes.values):
             if volume > 6:
-                ax.annotate(f'{int(volume)}{fuel_unit(fuel)}', (xx, vertical_center), ha='center', va='center')
-
-
-def annotate_volumes(ax: Axes, xx: np.ndarray, bar_heights: np.ndarray,
-                     bar_values: np.ndarray, fuels: np.ndarray) -> None:
-    assert bar_heights.shape == bar_values.shape
-    assert len(xx) == len(bar_heights) == len(bar_values)
-    y_heights = np.hstack((np.zeros((len(bar_heights), 1)), np.cumsum(bar_heights, axis=1)[:, :-1])) + bar_heights / 2
-    too_little_volume = 5
-    for x, yy, values in zip(xx, y_heights, bar_values):
-        for y, fuel, value in zip(yy, fuels, values):
-            if not value < too_little_volume:
-                ax.annotate(f'{int(value)}{fuel_unit(fuel)}', (x, y), ha='center', va='center')
+                ax.annotate(f'{int(volume)}{fuel_unit(fuel)}', (x_tick, vertical_center), ha='center', va='center')
 
 
 def fuel_unit(fuel: str) -> str:
@@ -297,25 +286,55 @@ def get_fuel_efficiencies_per_month(fuel_efficiencies: pd.DataFrame) -> pd.DataF
     return fuel_efficiencies_per_month.unstack().fillna(0)
 
 
-def draw_driven_km(fuel_efficiencies: pd.DataFrame) -> plt.Figure:
+def format_date(date):
+    """
+    Convert time label to the format of pandas line plot
+    """
+    month = date.month_name()[:3]
+    if month == 'Jan':
+        month += f'\n{date.year}'
+    return month
+
+
+def draw_driven(fuel_records_df: pd.DataFrame) -> plt.Figure:
+    sns.set_context('talk')
+    fig_width, fig_height = get_figsize()
+    fig, ax = plt.subplots(1, 1, figsize=(fig_width * 1.5, fig_height))
+
+    driven_df = fuel_records_df[['date']].copy()
+    driven_df['driven'] = fuel_records_df['mileage'].diff()
+    driven_per_month = driven_df.groupby([pd.Grouper(key='date', freq='M')]).sum()
+
+    driven_per_month['driven'].plot(ax=ax, kind='bar', ylabel='km')
+    ax.set_xticklabels([format_date(index) for index in driven_per_month.index])
+    annotate_kms(ax, driven_per_month['driven'])
+    return fig
+
+
+def draw_volumes(fuel_records_df: pd.DataFrame) -> plt.Figure:
+    sns.set_context('talk')
+    fig_width, fig_height = get_figsize()
+    fig, ax = plt.subplots(1, 1, figsize=(fig_width * 1.5, fig_height))
+
+    volumes_df = fuel_records_df[['date', 'volume', 'type']].copy()
+    volumes_per_month = volumes_df.groupby([pd.Grouper(key='date', freq='M'), 'type']).sum()['volume'].unstack()
+    volumes_per_month.plot(ax=ax, kind='bar', ylabel='km', stacked=True)
+    ax.set_xticklabels([format_date(index) for index in volumes_per_month.index])
+    annotate_volumes(ax, volumes_per_month.stack())
+    return fig
+
+
+def draw_driven_with_volumes(fuel_efficiencies: pd.DataFrame) -> plt.Figure:
     sns.set_context('talk')
     fig_width, fig_height = get_figsize()
     fig, ax = plt.subplots(1, 1, figsize=(fig_width * 1.5, fig_height))
 
     fuel_efficiencies_per_month = get_fuel_efficiencies_per_month(fuel_efficiencies)
 
-    def line_format(date):
-        """
-        Convert time label to the format of pandas line plot
-        """
-        month = date.month_name()[:3]
-        if month == 'Jan':
-            month += f'\n{date.year}'
-        return month
-
     fuel_efficiencies_per_month['driven'].plot(ax=ax, kind='bar', ylabel='km', stacked=True)
-    ax.set_xticklabels([line_format(index) for index in fuel_efficiencies_per_month.index])
-    annotate_kms_volumes(ax, fuel_efficiencies_per_month)
+    ax.set_xticklabels([format_date(index) for index in fuel_efficiencies_per_month.index])
+    annotate_kms(ax, fuel_efficiencies_per_month['driven'].sum(axis=1))
+    annotate_volumes(ax, fuel_efficiencies_per_month['volume'].stack(), fuel_efficiencies_per_month['driven'].stack())
     return fig
 
 
@@ -356,16 +375,19 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
     logger.info(fuel_efficiencies)
 
     fig_fuel_efficiencies = draw_fuel_efficiencies(fuel_efficiencies)
-    fig_driven_km = draw_driven_km(fuel_efficiencies)
+    fig_driven = draw_driven(fuel_records_df)
+    fig_volume = draw_volumes(fuel_records_df)
+    fig_driven_with_volumes = draw_driven_with_volumes(fuel_efficiencies)
 
     if save_dir is not None:
         os.makedirs(save_dir, exist_ok=True)
-        fig_driven_km.savefig(os.path.join(save_dir, 'driven_km.png'), bbox_inches='tight')
+        fig_driven.savefig(os.path.join(save_dir, 'driven_km.png'), bbox_inches='tight')
+        fig_volume.savefig(os.path.join(save_dir, 'tanked_volumes.png'), bbox_inches='tight')
+        fig_driven_with_volumes.savefig(os.path.join(save_dir, 'driven_with_volumes.png'), bbox_inches='tight')
         fig_fuel_efficiencies.savefig(os.path.join(save_dir, 'fuel_efficiencies.png'), bbox_inches='tight', dpi=150)
     else:
         plt.show()
-    plt.close(fig_driven_km)
-    plt.close(fig_fuel_efficiencies)
+    [plt.close(fig) for fig in [fig_fuel_efficiencies, fig_driven, fig_volume, fig_driven_with_volumes]]
 
 
 def parse_args() -> argparse.Namespace:
