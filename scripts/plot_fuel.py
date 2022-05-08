@@ -89,7 +89,7 @@ def annotate_kms_volumes(ax: Axes, fuel_efficiencies_per_month: pd.DataFrame) ->
 
         vertical_centers = driven_row.values.cumsum() - driven_row.values / 2.
         for fuel, vertical_center, volume in zip(volume_row.index, vertical_centers, volume_row.values):
-            if volume > 5:
+            if volume > 6:
                 ax.annotate(f'{int(volume)}{fuel_unit(fuel)}', (xx, vertical_center), ha='center', va='center')
 
 
@@ -107,13 +107,6 @@ def annotate_volumes(ax: Axes, xx: np.ndarray, bar_heights: np.ndarray,
 
 def fuel_unit(fuel: str) -> str:
     return 'L' if fuel == 'E10' else 'kg'
-
-
-def get_driven_freq(fuel_records_df: pd.DataFrame, freq: str = 'M') -> pd.DataFrame:
-    driven_freq_df = fuel_records_df[['date', 'type', 'volume']].copy()
-    driven_freq_df['driven'] = fuel_records_df['mileage'].diff()
-    driven_freq_df = driven_freq_df.groupby([pd.Grouper(key='date', freq=freq), 'type']).sum()
-    return driven_freq_df.unstack()
 
 
 @dataclass
@@ -253,10 +246,13 @@ def get_e10_outliers(fuel_efficiencies_df: pd.DataFrame, e10_km_per_unit_lower_t
     return outliers_records
 
 
-def filter_fuel_efficiencies_outliers(fuel_efficiencies_df: pd.DataFrame) -> pd.DataFrame:
+def filter_fuel_efficiencies_outliers(fuel_efficiencies_df: pd.DataFrame, do_fail=False) -> pd.DataFrame:
     gnc_outliers = get_gnc_outliers(fuel_efficiencies_df)
     e10_outliers = get_e10_outliers(fuel_efficiencies_df)
-    return fuel_efficiencies_df.drop(pd.Index.union(gnc_outliers.index, e10_outliers.index))
+    outlier_idxs = pd.Index.union(gnc_outliers.index, e10_outliers.index)
+    if do_fail and len(outlier_idxs) > 0:
+        raise RuntimeError('Outliers not tolerated')
+    return fuel_efficiencies_df.drop(outlier_idxs)
 
 
 def get_fuel_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
@@ -267,7 +263,7 @@ def get_fuel_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
     fuel_efficiencies['unit_per_km'] = fuel_efficiencies['volume'] / fuel_efficiencies['driven']
     fuel_efficiencies['euro_per_km'] = fuel_efficiencies['cost'] / fuel_efficiencies['driven']
     fuel_efficiencies['n_days'] = fuel_efficiencies['end_date'] - fuel_efficiencies['start_date']
-    fuel_efficiencies = filter_fuel_efficiencies_outliers(fuel_efficiencies)
+    fuel_efficiencies = filter_fuel_efficiencies_outliers(fuel_efficiencies, do_fail=True)
     return fuel_efficiencies
 
 
@@ -310,7 +306,7 @@ def get_fuel_efficiencies_per_month(fuel_efficiencies: pd.DataFrame) -> pd.DataF
 def draw_driven_km(fuel_efficiencies: pd.DataFrame) -> plt.Figure:
     sns.set_context('talk')
     fig_width, fig_height = get_figsize()
-    fig, ax = plt.subplots(1, 1, figsize=(fig_width * 2., fig_height))
+    fig, ax = plt.subplots(1, 1, figsize=(fig_width * 1.5, fig_height))
 
     fuel_efficiencies_per_month = get_fuel_efficiencies_per_month(fuel_efficiencies)
 
