@@ -325,11 +325,11 @@ def draw_driven(fuel_records_df: pd.DataFrame) -> plt.Figure:
 def draw_volumes(fuel_records_df: pd.DataFrame) -> plt.Figure:
     sns.set_context('talk')
     fig_width, fig_height = get_figsize()
-    fig, ax = plt.subplots(1, 1, figsize=(fig_width * 1.5, fig_height))
+    fig, ax = plt.subplots(1, 1, figsize=(fig_width * 1.8, fig_height))
 
     volumes_df = fuel_records_df[['date', 'volume', 'type']].copy()
     volumes_per_month = volumes_df.groupby([pd.Grouper(key='date', freq='M'), 'type']).sum()['volume'].unstack()
-    volumes_per_month.plot(ax=ax, kind='bar', ylabel='km', stacked=True)
+    volumes_per_month.plot(ax=ax, kind='bar', ylabel='volume [kg or L]', stacked=True)
     ax.set_xticklabels([format_date(index) for index in volumes_per_month.index])
     annotate_volumes(ax, volumes_per_month.stack())
     return fig
