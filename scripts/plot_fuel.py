@@ -181,7 +181,7 @@ def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
 
     # continue the iteration, starting with full tank of E10
     fuel_efficiencies = []
-    current_start_date = None
+    current_start_date = record.date if current_type == 'E10' else None
     current_end_date = None
     current_driven = 0
     current_volume = 0
