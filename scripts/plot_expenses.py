@@ -11,7 +11,7 @@ from scipy import stats
 from vanlife_analysis.utils import parse_date_interval, get_figsize
 
 
-def plot_monthly_expenses(df: pd.DataFrame, others_thresh: float = 0.03) -> plt.Figure:
+def draw_monthly_expenses(df: pd.DataFrame, others_thresh: float = 0.03) -> plt.Figure:
     categories = df.groupby(['Category']).sum()['Cost']
     total_cost = categories.sum()
 
@@ -19,7 +19,7 @@ def plot_monthly_expenses(df: pd.DataFrame, others_thresh: float = 0.03) -> plt.
     print(f'total cost: {total_cost:.0f}€')
 
     height = 7
-    fig, axs = plt.subplots(1, 2, figsize=get_figsize(height))
+    fig, ax = plt.subplots(1, 1, figsize=get_figsize(height))
 
     mask_others = (categories / total_cost) >= others_thresh
     series_others = pd.Series([categories[~mask_others].sum()], index=['Others'])
@@ -28,8 +28,8 @@ def plot_monthly_expenses(df: pd.DataFrame, others_thresh: float = 0.03) -> plt.
     masked_categories = masked_categories.append(series_others)
     masked_categories.sort_values(ascending=False, inplace=True)
 
-    masked_categories.plot.pie(ylabel='', ax=axs[0], legend=False, autopct='%.0f%%', pctdistance=0.7)
-    masked_categories.plot.bar(ylabel='Cost [€]', ax=axs[1], rot=60)
+    masked_categories.plot.pie(ylabel='', ax=ax, legend=False, autopct='%.0f%%', pctdistance=0.7)
+    # masked_categories.plot.bar(ylabel='Cost [€]', ax=axs[1], rot=60)
     plt.tight_layout()
     return fig, total_cost
 
@@ -46,8 +46,8 @@ def cleanup_df(df: pd.DataFrame) -> None:
 
 
 def plot_expenses(path_to_expenses: str, save_dir: str, date_interval: Optional[list]):
-    sns.set_theme(style="ticks", context="talk", rc={"axes.spines.right": False, "axes.spines.top": False})
-    plt.style.use("dark_background")
+    sns.set_theme(style="ticks", context="poster", rc={"axes.spines.right": False, "axes.spines.top": False})
+    # plt.style.use("dark_background")
     sns.set_palette("muted")
     os.makedirs(save_dir, exist_ok=True)
 
@@ -61,15 +61,20 @@ def plot_expenses(path_to_expenses: str, save_dir: str, date_interval: Optional[
         start_date = df['Date'].iloc[0] + pd.offsets.MonthBegin()
         end_date = df['Date'].iloc[-1] + pd.DateOffset(months=1)
 
-    fig, total_cost = plot_monthly_expenses(df)
+    print('=' * 50)
+    print("total expenses")
+    min_restaurant_cost = 10
+    print(f'Number of restaurants entries >{min_restaurant_cost}€:'
+          f'{len(df[(df["Category"] == "Restaurant") & (df["Cost"] >= min_restaurant_cost)])}')
+    fig, total_cost = draw_monthly_expenses(df)
     fig.suptitle(f'Expenses from {start_date.strftime("%d of %B")} to {end_date.strftime("%d of %B")}\n'
-                 f'Total: {total_cost:.0f}€ over {(end_date - start_date).days} days', fontsize=16, x=0.25)
+                 f'Total: {total_cost:.0f}€ over {(end_date - start_date).days} days')
     fig.savefig(os.path.join(save_dir, 'total_expenses.png'), dpi=400)
     plt.close(fig)
 
     df_by_month = df.groupby([pd.Grouper(key='Date', freq='MS')])
     for timestamp, df_month in df_by_month:
-        fig, total_cost = plot_monthly_expenses(df_month)
+        fig, total_cost = draw_monthly_expenses(df_month)
         month_year = timestamp.strftime('%B %Y')
         print('=' * 50)
         print(month_year)
