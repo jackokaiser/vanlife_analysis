@@ -34,6 +34,16 @@ def parse_date_interval(date_interval: list) -> tuple:
     return start_date, stop_date
 
 
+def format_date(date):
+    """
+    Convert time label to the format of pandas line plot
+    """
+    month = date.month_name()[:3]
+    if month == 'Jan':
+        month += f'\n{date.year}'
+    return month
+
+
 def uncompress_and_load(ann_dir_or_zip: str, data_loader: Callable) -> list:
     if ann_dir_or_zip.endswith('.zip'):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -56,11 +66,8 @@ def parse_fuel_manager(csv_path: str) -> dict:
         for i_line, line in enumerate(f.readlines()):
             if line.startswith('###'):
                 if i_line - current_start_line > 1:
-                    parsed_csv[current_name] = pd.read_csv(
-                        csv_path,
-                        sep='\t',
-                        skiprows=current_start_line,
-                        nrows=i_line - current_start_line - 1)
+                    parsed_csv[current_name] = pd.read_csv(csv_path, sep='\t', skiprows=current_start_line,
+                                                           nrows=i_line - current_start_line - 1)
                 current_name = line[4:-1]
                 current_start_line = i_line + 1
     return parsed_csv
@@ -72,7 +79,7 @@ def load_fuel_records(csv_path: str) -> pd.DataFrame:
     fuel_records_df.columns = fuel_records_df.columns.str.strip()
     fuel_records_df['type'] = fuel_records_df['type'].str.strip()
     fuel_records_df.loc[fuel_records_df['type'].eq('E95'), 'type'] = 'E10'
-    fuel_records_df['type'] = fuel_records_df['type'].astype(
-        pd.CategoricalDtype(['E10', 'GNC', 'BioGNC'], ordered=True))
+    fuel_records_df['type'] = fuel_records_df['type'].astype(pd.CategoricalDtype(['E10', 'GNC', 'BioGNC'],
+                                                                                 ordered=True))
     fuel_records_df['date'] = pd.to_datetime(fuel_records_df['date'], format='%Y%m%d')
     return fuel_records_df

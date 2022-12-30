@@ -12,7 +12,7 @@ import seaborn as sns
 import datetime
 import logging
 
-from vanlife_analysis.utils import load_fuel_records, get_figsize, parse_date_interval, configure_logger
+from vanlife_analysis.utils import load_fuel_records, get_figsize, parse_date_interval, configure_logger, format_date
 
 logger = logging.getLogger(__name__)
 
@@ -294,16 +294,6 @@ def get_fuel_efficiencies_per_month(fuel_efficiencies: pd.DataFrame) -> pd.DataF
     fuel_efficiencies_per_day = pd.DataFrame.from_records(records, columns=columns)
     fuel_efficiencies_per_month = fuel_efficiencies_per_day.groupby([pd.Grouper(key='date', freq='M'), 'type']).sum()
     return fuel_efficiencies_per_month.unstack().fillna(0)
-
-
-def format_date(date):
-    """
-    Convert time label to the format of pandas line plot
-    """
-    month = date.month_name()[:3]
-    if month == 'Jan':
-        month += f'\n{date.year}'
-    return month
 
 
 def draw_driven(fuel_records_df: pd.DataFrame) -> plt.Figure:
