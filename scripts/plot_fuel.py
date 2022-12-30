@@ -40,16 +40,9 @@ def compute_personal_co2(fuel_records_df: pd.DataFrame, n_days: int) -> pd.DataF
     # - https://www.rncan.gc.ca/sites/www.nrcan.gc.ca/files/oee/pdf/transportation/fuel-efficient-technologies/autosmart_factsheet_6_f.pdf
     # - https://www.afgnv.org/bilan-co2-du-gnv-ou-biognv/
     personal_co2 = pd.DataFrame
-    {
-        'name': ['E10', 'GNC', 'BioGNC'],
-        'kg_per_unit': [2.21, 2.96, 0.61]
-    }
+    {'name': ['E10', 'GNC', 'BioGNC'], 'kg_per_unit': [2.21, 2.96, 0.61]}
 
-    co2_per_fuel = {
-        'E10': 2.21,
-        'GNC': 2.96,
-        'BioGNC': 0.61
-    }
+    co2_per_fuel = {'E10': 2.21, 'GNC': 2.96, 'BioGNC': 0.61}
 
     personal_co2 = pd.DataFrame()
     for fuel, kg_per_unit in co2_per_fuel.items():
@@ -90,11 +83,10 @@ def annotate_volumes(ax: Axes, volumes_series: pd.Series, height_series: Optiona
     x_ticks = ax.get_xticks()
     if height_series is None:
         height_series = volumes_series
-    for x_tick, (_, volumes), (_, heights) in zip(x_ticks,
-                                                  volumes_series.groupby(level=0),
+    for x_tick, (_, volumes), (_, heights) in zip(x_ticks, volumes_series.groupby(level=0),
                                                   height_series.groupby(level=0)):
         vertical_centers = heights.values.cumsum() - heights.values / 2.
-        for fuel, vertical_center, volume in zip(volumes.index, vertical_centers, volumes.values):
+        for (_, fuel), vertical_center, volume in zip(volumes.index, vertical_centers, volumes.values):
             if volume > 6:
                 ax.annotate(f'{int(volume)}{fuel_unit(fuel)}', (x_tick, vertical_center), ha='center', va='center')
 
@@ -140,14 +132,16 @@ def get_gnc_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
                 assert current_start_date is None and (current_driven, current_volume, current_cost) == (0, 0, 0)
                 current_start_date = record.date
                 current_type = record.type
-            assert current_type == record.type, f'Unsupported GNC mix {current_type} and {record.type}'
+            if current_type != record.type:
+                print(f'Mix of GNC: setting type to GNC')
+                current_type = 'GNC'
             current_volume += record.volume
             current_cost += record.cost
         elif is_tank_switch(record):
             assert current_type is not None, 'Subsequent tank switch'
             current_end_date = record.date
-            fuel_efficiency = FuelEfficiency(current_start_date, current_end_date,
-                                             current_driven, current_volume, current_cost, current_type)
+            fuel_efficiency = FuelEfficiency(current_start_date, current_end_date, current_driven, current_volume,
+                                             current_cost, current_type)
             fuel_efficiencies.append(fuel_efficiency)
             current_start_date = None
             current_end_date = None
@@ -197,8 +191,8 @@ def get_e10_efficiencies(fuel_records_df: pd.DataFrame) -> pd.DataFrame:
             if is_full_refill(record):
                 assert current_start_date is not None
                 current_end_date = record.date if current_end_date is None else current_end_date
-                fuel_efficiency = FuelEfficiency(current_start_date, current_end_date,
-                                                 current_driven, current_volume, current_cost, 'E10')
+                fuel_efficiency = FuelEfficiency(current_start_date, current_end_date, current_driven, current_volume,
+                                                 current_cost, 'E10')
                 fuel_efficiencies.append(fuel_efficiency)
                 current_start_date = record.date if current_type == 'E10' else None
                 current_end_date = None
@@ -259,8 +253,10 @@ def draw_fuel_price(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
     sns.set_context('poster')
     fig, ax = plt.subplots(1, 1, figsize=get_figsize())
     avg_fuel_efficiencies['euro_per_km']['mean'].plot(kind='bar', ax=ax,
-                                                      yerr=avg_fuel_efficiencies['euro_per_km']['std'],
-                                                      error_kw={'capthick': 3, 'capsize': 10})
+                                                      yerr=avg_fuel_efficiencies['euro_per_km']['std'], error_kw={
+                                                          'capthick': 3,
+                                                          'capsize': 10
+                                                      })
     ax.set_ylabel('Price [€/km]')
     ax.set_xlabel('Fuel type')
     annotate_euros(ax)
@@ -272,7 +268,10 @@ def draw_fuel_consumption(avg_fuel_efficiencies: pd.DataFrame) -> plt.Figure:
     fig, ax = plt.subplots(1, 1, figsize=get_figsize())
     (avg_fuel_efficiencies['unit_per_km']['mean'] * 100).plot(kind='bar', ax=ax,
                                                               yerr=avg_fuel_efficiencies['unit_per_km']['std'] * 100.,
-                                                              error_kw={'capthick': 3, 'capsize': 10})
+                                                              error_kw={
+                                                                  'capthick': 3,
+                                                                  'capsize': 10
+                                                              })
     ax.set_ylabel('Fuel consumption [kg or L/100km]')
     ax.set_xlabel('Fuel type')
     annotate_consumptions(ax, avg_fuel_efficiencies['unit_per_km']['mean'] * 100)
@@ -412,8 +411,7 @@ def plot_fuel(path_to_fuel: str, save_dir: Optional[str], date_interval: Optiona
         fig_fuel_consumption.savefig(os.path.join(save_dir, 'fuel_consumption.png'), bbox_inches='tight', dpi=150)
     else:
         plt.show()
-    [plt.close(fig) for fig in [fig_driven, fig_volume, fig_driven_with_volumes,
-                                fig_fuel_price, fig_fuel_consumption]]
+    [plt.close(fig) for fig in [fig_driven, fig_volume, fig_driven_with_volumes, fig_fuel_price, fig_fuel_consumption]]
 
 
 def parse_args() -> argparse.Namespace:
