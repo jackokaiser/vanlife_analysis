@@ -1,6 +1,6 @@
 import argparse
 import os
-from typing import Optional
+from typing import Optional, Tuple
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass, asdict
@@ -38,24 +38,42 @@ co2_per_kg_by_meat = {
 }
 
 
-def draw_meat_quantity(meat_per_month: pd.DataFrame) -> plt.Figure:
+def silence_other_columns(df: pd.DataFrame, other: str = 'other meat') -> None:
+    columns = [f'_{col}' for col in df.columns]
+    columns[0] = other
+    df.columns = columns
+
+
+def split_top_other(df: pd.DataFrame, topk: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    top_idxs = df.sum().nlargest(topk).index
+    other_idxs = df.columns[~df.columns.isin(top_idxs)]
+    top_df = df[top_idxs]
+    other_df = df[other_idxs]
+    silence_other_columns(other_df)
+    return top_df, other_df
+
+
+def draw_meat_quantity(meat_per_month: pd.DataFrame, topk: int = 10) -> plt.Figure:
     fig_width, fig_height = get_figsize()
     fig, ax = plt.subplots(1, 1, figsize=(fig_width * 1.5, fig_height))
     quantity_df = meat_per_month['quantity [g]'].copy()
-    top_10_meat = quantity_df.sum().nlargest(10).index
-    quantity_df.columns = [col if col in top_10_meat else f'_{col}' for col in quantity_df.columns]
-    quantity_df.plot(ax=ax, kind='bar', ylabel='Meat consumption quantity [g]', stacked=True)
+    quantity_top_df, quantity_other_df = split_top_other(quantity_df, topk)
+    quantity_top_df.plot(ax=ax, kind='bar', ylabel='Meat consumption quantity [g]', stacked=True)
+    quantity_other_df.plot(ax=ax, kind='bar', stacked=True, color='black')
+
     ax.set_xticklabels([format_date(index) for index in meat_per_month.index])
     return fig
 
 
-def draw_co2(meat_per_month: pd.DataFrame) -> plt.Figure:
+def draw_co2(meat_per_month: pd.DataFrame, topk: int = 5) -> plt.Figure:
     fig_width, fig_height = get_figsize()
     fig, ax = plt.subplots(1, 1, figsize=(fig_width * 1.5, fig_height))
     co2_df = meat_per_month['co2'].copy()
-    top_10_meat = co2_df.sum().nlargest(10).index
-    co2_df.columns = [col if col in top_10_meat else f'_{col}' for col in co2_df.columns]
-    co2_df.plot(ax=ax, kind='bar', ylabel='CO2 equivalent [kg]', stacked=True)
+    co2_top_df, co2_other_df = split_top_other(co2_df, topk)
+
+    co2_top_df.plot(ax=ax, kind='bar', ylabel='CO2 equivalent [kg]', stacked=True)
+    co2_other_df.plot(ax=ax, kind='bar', stacked=True, color='black')
+
     ax.set_xticklabels([format_date(index) for index in meat_per_month.index])
     return fig
 
@@ -63,7 +81,7 @@ def draw_co2(meat_per_month: pd.DataFrame) -> plt.Figure:
 def plot_meat(path_to_meat: str, date_interval: list, save_dir: str) -> None:
     sns.set_theme(style="ticks", context="poster", rc={"axes.spines.right": False, "axes.spines.top": False})
     # plt.style.use("dark_background")
-    sns.set_palette("muted")
+    # sns.set_palette("muted")
 
     df = pd.read_csv(path_to_meat)
     df['date'] = pd.to_datetime(df['date'], format='%d/%m/%Y')
