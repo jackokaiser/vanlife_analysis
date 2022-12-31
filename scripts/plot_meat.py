@@ -14,27 +14,25 @@ import logging
 
 from vanlife_analysis.utils import load_fuel_records, get_figsize, parse_date_interval, configure_logger, format_date
 
-co2_per_kg_fish = 0.46
-
+# from AGRIBALYSE3.1
 co2_per_kg_by_meat = {
-    'beef': 34.5,
-    'chicken': 3.5,
-    'duck': 4.09,
-    'pork': 4.9,
-    'salmon': 3.5,
-    'tuna': 6.1,
-    'lamb': 17.9,
-    'sheep': 0.3,
-    'shrimps': 2000,
-    'cod': 11,
-    'crabs': 0.5,
-    'veal': 37,
-    'herrings': co2_per_kg_fish,
-    'sea bass': co2_per_kg_fish,
-    'pike perch': co2_per_kg_fish,
-    'trout': co2_per_kg_fish,
-    'dab': co2_per_kg_fish,
-    'sander': co2_per_kg_fish
+    'beef': 34.1,
+    'chicken': 6.79,
+    'duck': 9.33,
+    'pork': 5.09,
+    'salmon': 8.77,
+    'tuna': 5.43,
+    'lamb': 27.1,
+    'sheep': 39.5,
+    'shrimps': 7.64,
+    'cod': 13.2,
+    'crabs': 31.1,
+    'veal': 30.7,
+    'herrings': 2.19,
+    'sea bass': 15.5,
+    'pike perch': 6.64,
+    'trout': 8.08,
+    'dab': 10.8
 }
 
 
