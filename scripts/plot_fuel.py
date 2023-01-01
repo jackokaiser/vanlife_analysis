@@ -39,9 +39,6 @@ def compute_personal_co2(fuel_records_df: pd.DataFrame, n_days: int) -> pd.DataF
     # source:
     # - https://www.rncan.gc.ca/sites/www.nrcan.gc.ca/files/oee/pdf/transportation/fuel-efficient-technologies/autosmart_factsheet_6_f.pdf
     # - https://www.afgnv.org/bilan-co2-du-gnv-ou-biognv/
-    personal_co2 = pd.DataFrame
-    {'name': ['E10', 'GNC', 'BioGNC'], 'kg_per_unit': [2.21, 2.96, 0.61]}
-
     co2_per_fuel = {'E10': 2.21, 'GNC': 2.96, 'BioGNC': 0.61}
 
     personal_co2 = pd.DataFrame()
